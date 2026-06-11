@@ -105,6 +105,44 @@ def test_right_boundary_noise_filters_do_not_drop_strong_suffix_names():
     assert "黄龙丹" in names
 
 
+def test_rejects_truncated_generic_danfang_candidates():
+    rules = _medicine_rules()
+
+    for text in ["有人讨论丹方。", "有人研究丹方。"]:
+        names = {item["name"] for item in extract_candidates_from_text(text, rules)}
+
+        assert "人讨论丹" not in names
+        assert "人研究丹" not in names
+        assert "丹" not in names
+        assert "丹方" not in names
+        assert names == set()
+
+
+def test_extracts_real_name_after_generic_danfang_boundary():
+    rules = _medicine_rules()
+    text = "丹方记载黄龙丹。"
+
+    candidates = extract_candidates_from_text(text, rules)
+    names = {item["name"] for item in candidates}
+    item = next(candidate for candidate in candidates if candidate["name"] == "黄龙丹")
+
+    assert "黄龙丹" in names
+    assert "丹方记载黄龙丹" not in names
+    assert "丹方" not in names
+    assert item["start"] == text.index("黄龙丹")
+    assert item["end"] == item["start"] + len("黄龙丹")
+
+
+def test_does_not_cross_narrative_word_before_dan_formula():
+    rules = _medicine_rules()
+    text = "他讨论黄龙丹方。"
+
+    names = {item["name"] for item in extract_candidates_from_text(text, rules)}
+
+    assert "讨论黄龙丹" not in names
+    assert "丹方" not in names
+
+
 def test_rejects_generic_medicine_terms_and_overlapping_suffixes():
     rules = _medicine_rules()
     text = "这些丹药的丹方复杂，的丹也不应抽出。"

@@ -82,6 +82,13 @@ def _has_invalid_right_boundary(text: str, end: int, strategy: dict) -> bool:
     )
 
 
+def _has_right_continuation(text: str, end: int, strategy: dict) -> bool:
+    return any(
+        text.startswith(token, end)
+        for token in _configured_list(strategy.get("right_continuation_tokens"))
+    )
+
+
 def _is_noise(name: str, local_phrase: str, context: str, rules: dict) -> bool:
     if name in set(rules.get("noise_exact", [])):
         return True
@@ -146,6 +153,8 @@ def extract_candidates_from_text(
     for suffix_match in suffix_pattern.finditer(text):
         suffix = suffix_match.group(0)
         suffix_end = suffix_match.end()
+        if _has_right_continuation(text, suffix_end, strategy):
+            continue
         if (
             suffix_strength[suffix] == "weak"
             and _has_invalid_right_boundary(text, suffix_end, strategy)
