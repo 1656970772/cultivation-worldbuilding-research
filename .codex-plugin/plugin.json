@@ -1,0 +1,21 @@
+{
+  "name": "cultivation-worldbuilding-research",
+  "version": "0.1.0",
+  "description": "Extract configurable cultivation worldbuilding research from long fiction and game text.",
+  "author": {
+    "name": "Administrator"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Cultivation Worldbuilding Research",
+    "shortDescription": "Template-driven fiction worldbuilding extraction.",
+    "longDescription": "Extract entities, evidence, and template-ready reports from long cultivation fiction and game text using configurable rule packs.",
+    "developerName": "Administrator",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": "Help me extract cultivation worldbuilding research from source text."
+  }
+}
