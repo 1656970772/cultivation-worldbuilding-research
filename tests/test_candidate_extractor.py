@@ -143,6 +143,35 @@ def test_does_not_cross_narrative_word_before_dan_formula():
     assert "丹方" not in names
 
 
+def test_rejects_high_frequency_generic_process_and_material_noise():
+    rules = _medicine_rules()
+    examples = {
+        "两名结丹修士谈起丹药。": {"两名结丹", "结丹"},
+        "丹方上对此灵丹另有记载。": {"丹方上对此灵丹", "此灵丹", "灵丹"},
+        "此法可增加丹药成丹几率。": {"法可增加丹药成丹", "可增加丹药成丹", "成丹"},
+        "炉中炼制出一颗粉红色药丸。": {"出一颗粉红色药丸", "粉红色药丸", "药丸"},
+        "韩立听到这药丸可以筑基。": {"韩立听到这药丸", "这药丸", "药丸"},
+        "韩立炼丹后服下黄龙丹。": {"韩立炼丹", "炼丹"},
+        "此丹可以延寿。": {"此丹"},
+        "千年灵药可用于炼制丹药。": {"千年灵药", "灵药"},
+        "这些灵药可用于炼制丹药。": {"这些灵药", "灵药"},
+    }
+
+    for text, forbidden in examples.items():
+        names = {item["name"] for item in extract_candidates_from_text(text, rules)}
+
+        assert not forbidden & names
+
+
+def test_core_medicine_names_survive_generic_noise_filters():
+    rules = _medicine_rules()
+    text = "韩立服下黄龙丹和金髓丸，又收起抽髓丸，并炼制筑基丹。"
+
+    names = {item["name"] for item in extract_candidates_from_text(text, rules)}
+
+    assert {"黄龙丹", "金髓丸", "抽髓丸", "筑基丹"} <= names
+
+
 def test_rejects_generic_medicine_terms_and_overlapping_suffixes():
     rules = _medicine_rules()
     text = "这些丹药的丹方复杂，的丹也不应抽出。"

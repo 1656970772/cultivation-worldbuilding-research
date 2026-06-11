@@ -72,7 +72,10 @@ def _has_forbidden_name_boundary(name: str, strategy: dict) -> bool:
     if any(name.startswith(prefix) for prefix in prefixes):
         return True
     substrings = _configured_list(strategy.get("forbidden_name_substrings"))
-    return any(value in name for value in substrings)
+    if any(value in name for value in substrings):
+        return True
+    patterns = _configured_list(strategy.get("forbidden_name_patterns"))
+    return any(re.search(pattern, name) for pattern in patterns)
 
 
 def _has_invalid_right_boundary(text: str, end: int, strategy: dict) -> bool:
