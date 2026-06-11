@@ -76,6 +76,9 @@ def test_cli_inspect_writes_report_and_template_columns(tmp_path):
 def test_cli_inspect_and_segment_accept_input_alias(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("第一章\n韩立服下黄龙丹。", encoding="utf-8")
+    template = tmp_path / "丹药分析模板.md"
+    template.write_text("# 丹药分析模板\n", encoding="utf-8")
+    config = ROOT / "assets" / "default-config.yaml"
 
     inspect_result = _run_cli(
         "inspect",
@@ -93,10 +96,14 @@ def test_cli_inspect_and_segment_accept_input_alias(tmp_path):
 
     segment_result = _run_cli(
         "segment",
+        "--config",
+        config,
         "--workdir",
         tmp_path,
         "--input",
         source,
+        "--template",
+        template,
     )
 
     assert segment_result.returncode == 0, segment_result.stderr

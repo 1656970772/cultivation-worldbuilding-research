@@ -380,6 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
     segment.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     segment.add_argument("--encoding")
     segment.add_argument("--output", type=Path)
+    add_ignored_path_args(segment, "--template")
     segment.set_defaults(func=cmd_segment)
 
     route = subparsers.add_parser(
