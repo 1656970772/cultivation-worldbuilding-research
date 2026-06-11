@@ -73,6 +73,40 @@ def test_cli_inspect_writes_report_and_template_columns(tmp_path):
     assert report["template_columns_found"] == ["丹药名称", "稀有度", "功效"]
 
 
+def test_cli_inspect_and_segment_accept_input_alias(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("第一章\n韩立服下黄龙丹。", encoding="utf-8")
+
+    inspect_result = _run_cli(
+        "inspect",
+        "--workdir",
+        tmp_path,
+        "--input",
+        source,
+    )
+
+    assert inspect_result.returncode == 0, inspect_result.stderr
+    inspect_report = json.loads(
+        (tmp_path / "inspect-report.json").read_text(encoding="utf-8")
+    )
+    assert inspect_report["source"] == str(source)
+
+    segment_result = _run_cli(
+        "segment",
+        "--workdir",
+        tmp_path,
+        "--input",
+        source,
+    )
+
+    assert segment_result.returncode == 0, segment_result.stderr
+    segments = [
+        json.loads(line)
+        for line in (tmp_path / "segments.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "韩立服下黄龙丹。" in segments[0]["text"]
+
+
 def test_cli_route_template_uses_report_default_name(tmp_path):
     template = tmp_path / "丹药分析模板.md"
     template.write_text("# 丹药分析模板\n", encoding="utf-8")
@@ -88,6 +122,35 @@ def test_cli_route_template_uses_report_default_name(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "route-report.json").exists()
     assert not (tmp_path / "route.json").exists()
+
+
+def test_cli_route_template_accepts_plan_style_aliases_and_ignored_args(tmp_path):
+    template = tmp_path / "丹药分析模板.md"
+    template.write_text("# 丹药分析模板\n", encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text("unused: true\n", encoding="utf-8")
+    source = tmp_path / "source.txt"
+    source.write_text("韩立服下黄龙丹。", encoding="utf-8")
+
+    result = _run_cli(
+        "route-template",
+        "--workdir",
+        tmp_path,
+        "--template",
+        template,
+        "--registry",
+        ROOT / "assets" / "template-registry.yaml",
+        "--request",
+        "梳理丹药设定",
+        "--config",
+        config,
+        "--input",
+        source,
+    )
+
+    assert result.returncode == 0, result.stderr
+    route = json.loads((tmp_path / "route-report.json").read_text(encoding="utf-8"))
+    assert route["subject_type"] == "丹药"
 
 
 def test_cli_extract_candidates_writes_segment_and_global_offsets(tmp_path):
@@ -125,6 +188,46 @@ def test_cli_extract_candidates_writes_segment_and_global_offsets(tmp_path):
     assert item["end"] == item["start"] + len("黄龙丹")
     assert item["start_char"] == 1000 + item["start"]
     assert item["end_char"] == 1000 + item["end"]
+
+
+def test_cli_extract_candidates_accepts_plan_style_ignored_args(tmp_path):
+    text = "韩立服下黄龙丹。"
+    segment = {
+        "segment_id": "seg-000001",
+        "title": "测试",
+        "text": text,
+        "start_line": 1,
+        "end_line": 1,
+        "start_char": 0,
+        "end_char": len(text),
+    }
+    (tmp_path / "segments.jsonl").write_text(
+        json.dumps(segment, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "extract-candidates",
+        "--workdir",
+        tmp_path,
+        "--config",
+        tmp_path / "config.yaml",
+        "--input",
+        tmp_path / "source.txt",
+        "--template",
+        tmp_path / "丹药分析模板.md",
+        "--mode-rule",
+        ROOT / "assets" / "mode-rules" / "entity.yaml",
+        "--rule-pack",
+        ROOT / "assets" / "rule-packs" / "entity-medicine.yaml",
+    )
+
+    assert result.returncode == 0, result.stderr
+    candidates = [
+        json.loads(line)
+        for line in (tmp_path / "candidates.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(candidate["name"] == "黄龙丹" for candidate in candidates)
 
 
 def test_cli_render_accepts_bom_confirmed_and_keeps_expected_only_out(tmp_path):
@@ -206,6 +309,56 @@ def test_cli_build_evidence_uses_pack_default_name(tmp_path):
     assert not (tmp_path / "evidence.jsonl").exists()
 
 
+def test_cli_build_evidence_accepts_plan_style_ignored_args(tmp_path):
+    text = "韩立服下黄龙丹。"
+    start = text.index("黄龙丹")
+    segment = {
+        "segment_id": "seg-000001",
+        "title": "测试",
+        "text": text,
+        "start_line": 1,
+        "end_line": 1,
+        "start_char": 0,
+        "end_char": len(text),
+    }
+    candidate = {
+        "name": "黄龙丹",
+        "status": "needs-review",
+        "segment_id": "seg-000001",
+        "start": start,
+        "end": start + len("黄龙丹"),
+        "start_char": start,
+        "end_char": start + len("黄龙丹"),
+    }
+    (tmp_path / "segments.jsonl").write_text(
+        json.dumps(segment, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "candidates.jsonl").write_text(
+        json.dumps(candidate, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "build-evidence",
+        "--workdir",
+        tmp_path,
+        "--config",
+        tmp_path / "config.yaml",
+        "--input",
+        tmp_path / "source.txt",
+        "--template",
+        tmp_path / "丹药分析模板.md",
+    )
+
+    assert result.returncode == 0, result.stderr
+    evidence = [
+        json.loads(line)
+        for line in (tmp_path / "evidence-pack.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert evidence[0]["name"] == "黄龙丹"
+
+
 def test_cli_render_reads_route_report_by_default(tmp_path):
     route = {
         "subject_type": "丹药",
@@ -243,6 +396,54 @@ def test_cli_render_reads_route_report_by_default(tmp_path):
     assert not (tmp_path / "测试书丹药分析.md").exists()
 
 
+def test_cli_render_accepts_config_alias_and_plan_style_ignored_args(tmp_path):
+    confirmed = {
+        "work_title": "测试书",
+        "items": [
+            {
+                "status": "confirmed",
+                "name": "黄龙丹",
+                "fields": {"丹药名称": "黄龙丹"},
+                "source_spans": [
+                    {"segment_id": "seg-000001", "line": 1, "summary": "韩立服下黄龙丹"}
+                ],
+            }
+        ],
+    }
+    config = tmp_path / "default.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "output:",
+                "  output_name_pattern: \"{work_title}-from-config.md\"",
+                "  report_title_pattern: \"《{work_title}》分析\"",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    confirmed_path = tmp_path / "confirmed.json"
+    _write_json(confirmed_path, confirmed)
+
+    result = _run_cli(
+        "render",
+        "--workdir",
+        tmp_path,
+        "--confirmed",
+        confirmed_path,
+        "--config",
+        config,
+        "--template",
+        tmp_path / "丹药分析模板.md",
+        "--registry",
+        ROOT / "assets" / "template-registry.yaml",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "测试书-from-config.md").exists()
+    assert not (tmp_path / "测试书分析.md").exists()
+
+
 def test_cli_validate_uses_report_default_name(tmp_path):
     report = tmp_path / "report.md"
     report.write_text(
@@ -264,6 +465,66 @@ def test_cli_validate_uses_report_default_name(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "validation-report.json").exists()
     assert not (tmp_path / "validation.json").exists()
+
+
+def test_cli_validate_accepts_config_alias_for_default_config(tmp_path):
+    confirmed = {
+        "work_title": "测试书",
+        "items": [
+            {
+                "status": "confirmed",
+                "name": "黄龙丹",
+                "fields": {"丹药名称": "黄龙丹"},
+                "source_spans": [
+                    {"segment_id": "seg-000001", "line": 1, "summary": "韩立服下黄龙丹"}
+                ],
+            }
+        ],
+    }
+    config = tmp_path / "default.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "output:",
+                "  output_name_pattern: \"{work_title}-validate-config.md\"",
+                "required_columns: [丹药名称]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    confirmed_path = tmp_path / "confirmed.json"
+    _write_json(confirmed_path, confirmed)
+    report = tmp_path / "测试书-validate-config.md"
+    report.write_text(
+        "\n".join(
+            [
+                "# 测试报告",
+                "",
+                "| 丹药名称 |",
+                "| --- |",
+                "| 黄龙丹 |",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "validate",
+        "--workdir",
+        tmp_path,
+        "--confirmed",
+        confirmed_path,
+        "--config",
+        config,
+    )
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads(
+        (tmp_path / "validation-report.json").read_text(encoding="utf-8")
+    )
+    assert validation["passed"] is True
 
 
 def test_cli_validate_expected_present_warning_does_not_block(tmp_path):

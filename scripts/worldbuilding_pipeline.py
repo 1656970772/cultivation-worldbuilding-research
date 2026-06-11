@@ -357,9 +357,16 @@ def build_parser() -> argparse.ArgumentParser:
             help="Directory for default pipeline inputs and outputs.",
         )
 
+    def add_ignored_path_args(
+        command: argparse.ArgumentParser,
+        *option_strings: str,
+    ) -> None:
+        for option_string in option_strings:
+            command.add_argument(option_string, type=Path, help=argparse.SUPPRESS)
+
     inspect = subparsers.add_parser("inspect", help="Inspect source text encoding.")
     add_workdir(inspect)
-    inspect.add_argument("--source", required=True, type=Path)
+    inspect.add_argument("--source", "--input", dest="source", required=True, type=Path)
     inspect.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     inspect.add_argument("--template", type=Path)
     inspect.add_argument("--encoding")
@@ -369,7 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     segment = subparsers.add_parser("segment", help="Split source text into segments.")
     add_workdir(segment)
-    segment.add_argument("--source", required=True, type=Path)
+    segment.add_argument("--source", "--input", dest="source", required=True, type=Path)
     segment.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     segment.add_argument("--encoding")
     segment.add_argument("--output", type=Path)
@@ -381,8 +388,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_workdir(route)
     route.add_argument("--template", required=True, type=Path)
-    route.add_argument("--template-registry", type=Path, default=DEFAULT_TEMPLATE_REGISTRY)
-    route.add_argument("--user-request", default="")
+    route.add_argument(
+        "--template-registry",
+        "--registry",
+        dest="template_registry",
+        type=Path,
+        default=DEFAULT_TEMPLATE_REGISTRY,
+    )
+    route.add_argument("--user-request", "--request", dest="user_request", default="")
+    add_ignored_path_args(route, "--config", "--input")
     route.add_argument("--output", type=Path)
     route.set_defaults(func=cmd_route_template)
 
@@ -394,6 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--mode-rule", required=True, type=Path)
     extract.add_argument("--rule-pack", required=True, type=Path)
     extract.add_argument("--segments", type=Path)
+    add_ignored_path_args(extract, "--config", "--input", "--template")
     extract.add_argument("--output", type=Path)
     extract.set_defaults(func=cmd_extract_candidates)
 
@@ -405,6 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--segments", type=Path)
     evidence.add_argument("--candidates", type=Path)
     evidence.add_argument("--context-chars", type=int, default=80)
+    add_ignored_path_args(evidence, "--config", "--input", "--template")
     evidence.add_argument("--output", type=Path)
     evidence.set_defaults(func=cmd_build_evidence)
 
@@ -412,7 +428,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_workdir(render)
     render.add_argument("--confirmed", required=True, type=Path)
     render.add_argument("--route", type=Path)
-    render.add_argument("--default-config", type=Path, default=DEFAULT_CONFIG)
+    render.add_argument(
+        "--default-config",
+        "--config",
+        dest="default_config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+    )
+    add_ignored_path_args(render, "--template", "--registry")
     render.add_argument("--output", type=Path)
     render.set_defaults(func=cmd_render)
 
@@ -422,7 +445,13 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--expected", type=Path)
     validate.add_argument("--confirmed", type=Path)
     validate.add_argument("--route", type=Path)
-    validate.add_argument("--default-config", type=Path, default=DEFAULT_CONFIG)
+    validate.add_argument(
+        "--default-config",
+        "--config",
+        dest="default_config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+    )
     validate.add_argument("--output", type=Path)
     validate.set_defaults(func=cmd_validate)
 
