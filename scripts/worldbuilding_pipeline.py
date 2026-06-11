@@ -1,0 +1,400 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Callable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.pipeline.candidate_extractor import extract_candidates_from_text
+from scripts.pipeline.config_loader import load_yaml
+from scripts.pipeline.encoding import read_text_with_encoding
+from scripts.pipeline.evidence_builder import build_evidence_pack
+from scripts.pipeline.renderer import render_report
+from scripts.pipeline.rule_pack import load_rule_pack
+from scripts.pipeline.segmenter import segment_text, write_jsonl
+from scripts.pipeline.template_router import route_template
+from scripts.pipeline.validator import validate_expected_present, validate_report
+
+
+DEFAULT_CONFIG = ROOT / "assets" / "default-config.yaml"
+DEFAULT_TEMPLATE_REGISTRY = ROOT / "assets" / "template-registry.yaml"
+
+
+def _path(value: str | Path | None) -> Path | None:
+    if value is None:
+        return None
+    return Path(value)
+
+
+def _workdir(args: argparse.Namespace) -> Path:
+    return Path(args.workdir)
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError(f"JSON root must be an object: {path}")
+    return data
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if not path.exists():
+        raise FileNotFoundError(path)
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        item = json.loads(line)
+        if not isinstance(item, dict):
+            raise ValueError(f"JSONL line must be an object: {path}:{line_number}")
+        items.append(item)
+    return items
+
+
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
+    write_jsonl(items, path)
+
+
+def _stdout_json(data: dict[str, Any]) -> None:
+    print(json.dumps(data, ensure_ascii=False))
+
+
+def _configured_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def _nested_output(config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    output = config.get("output", {})
+    return output if isinstance(output, dict) else {}
+
+
+def _config_value(key: str, *configs: dict[str, Any] | None) -> Any:
+    for config in configs:
+        if not isinstance(config, dict):
+            continue
+        if key in config:
+            return config[key]
+        output = _nested_output(config)
+        if key in output:
+            return output[key]
+    return None
+
+
+def _load_optional_yaml(path: Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    return load_yaml(path)
+
+
+def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    return _read_json(path)
+
+
+def _derive_report_path(
+    workdir: Path,
+    confirmed_report: dict[str, Any],
+    route_config: dict[str, Any] | None,
+    default_config: dict[str, Any] | None,
+) -> Path:
+    report_config = confirmed_report.get("report_config", {})
+    work_title = str(confirmed_report.get("work_title") or "report")
+    subject_type = str(
+        _config_value("subject_type", report_config, route_config, default_config)
+        or ""
+    )
+    pattern = _config_value(
+        "output_name_pattern",
+        report_config,
+        route_config,
+        default_config,
+    )
+    if pattern:
+        name = str(pattern).format(work_title=work_title, subject_type=subject_type)
+    else:
+        name = f"{work_title}.md"
+    return workdir / name
+
+
+def _default_route_path(workdir: Path) -> Path | None:
+    path = workdir / "route.json"
+    return path if path.exists() else None
+
+
+def _default_confirmed_path(workdir: Path) -> Path | None:
+    path = workdir / "confirmed.json"
+    return path if path.exists() else None
+
+
+def cmd_inspect(args: argparse.Namespace) -> int:
+    config = load_yaml(Path(args.config))
+    text, meta = read_text_with_encoding(
+        Path(args.source),
+        encoding=args.encoding,
+        candidates=config.get("encoding", {}).get("fallbacks", []),
+    )
+    result = {
+        "source": str(Path(args.source)),
+        "encoding": meta["encoding"],
+        "confidence": meta["confidence"],
+        "line_count": meta["line_count"],
+        "char_count": meta["char_count"],
+        "replacement_count": meta["replacement_count"],
+        "preview": text[: int(args.preview_chars)],
+    }
+    output = _path(args.output) or (_workdir(args) / "inspect.json")
+    _write_json(output, result)
+    _stdout_json({"output": str(output), **result})
+    return 0
+
+
+def cmd_segment(args: argparse.Namespace) -> int:
+    config = load_yaml(Path(args.config))
+    segmentation = config.get("segmentation", {})
+    text, meta = read_text_with_encoding(
+        Path(args.source),
+        encoding=args.encoding,
+        candidates=config.get("encoding", {}).get("fallbacks", []),
+    )
+    segments = segment_text(
+        text,
+        _configured_list(segmentation.get("chapter_patterns")),
+        int(segmentation.get("max_chars_per_segment", 6000)),
+        int(segmentation.get("overlap_chars", 300)),
+    )
+    output = _path(args.output) or (_workdir(args) / "segments.jsonl")
+    _write_jsonl(output, segments)
+    _stdout_json(
+        {
+            "output": str(output),
+            "segments": len(segments),
+            "encoding": meta["encoding"],
+        }
+    )
+    return 0
+
+
+def cmd_route_template(args: argparse.Namespace) -> int:
+    route = route_template(
+        Path(args.template_registry),
+        Path(args.template),
+        args.user_request,
+    )
+    output = _path(args.output) or (_workdir(args) / "route.json")
+    _write_json(output, route)
+    _stdout_json({"output": str(output), "template_name": route["template_name"]})
+    return 0
+
+
+def cmd_extract_candidates(args: argparse.Namespace) -> int:
+    rules = load_rule_pack(Path(args.mode_rule), Path(args.rule_pack))
+    segments_path = _path(args.segments) or (_workdir(args) / "segments.jsonl")
+    segments = _read_jsonl(segments_path)
+    candidates: list[dict[str, Any]] = []
+    for segment in segments:
+        candidates.extend(
+            extract_candidates_from_text(
+                str(segment.get("text", "")),
+                rules,
+                segment_id=str(segment.get("segment_id")),
+                segment_start_char=int(segment.get("start_char", 0)),
+            )
+        )
+    output = _path(args.output) or (_workdir(args) / "candidates.jsonl")
+    _write_jsonl(output, candidates)
+    _stdout_json({"output": str(output), "candidates": len(candidates)})
+    return 0
+
+
+def cmd_build_evidence(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    segments = _read_jsonl(_path(args.segments) or (workdir / "segments.jsonl"))
+    candidates = _read_jsonl(_path(args.candidates) or (workdir / "candidates.jsonl"))
+    evidence = build_evidence_pack(
+        candidates,
+        segments,
+        context_chars=int(args.context_chars),
+    )
+    output = _path(args.output) or (workdir / "evidence.jsonl")
+    _write_jsonl(output, evidence)
+    _stdout_json({"output": str(output), "evidence": len(evidence)})
+    return 0
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    confirmed = _read_json(Path(args.confirmed))
+    route = _load_optional_json(_path(args.route) or _default_route_path(workdir))
+    defaults = _load_optional_yaml(_path(args.default_config))
+    output = _path(args.output) or _derive_report_path(
+        workdir,
+        confirmed,
+        route,
+        defaults,
+    )
+    render_report(confirmed, output, route_config=route, default_config=defaults)
+    _stdout_json({"output": str(output)})
+    return 0
+
+
+def _merge_coverage_warnings(
+    base: dict[str, Any],
+    extra: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(base)
+    coverage = dict(merged.get("coverage_warnings", {}))
+    coverage.update(extra.get("coverage_warnings", {}))
+    merged["coverage_warnings"] = coverage
+    return merged
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    expected = _load_optional_yaml(_path(args.expected))
+    route = _load_optional_json(_path(args.route) or _default_route_path(workdir))
+    defaults = _load_optional_yaml(_path(args.default_config))
+    confirmed_path = _path(args.confirmed) or _default_confirmed_path(workdir)
+    confirmed = _load_optional_json(confirmed_path)
+    report_path = _path(args.report)
+    if report_path is None:
+        if confirmed is None:
+            report_path = workdir / "report.md"
+        else:
+            report_path = _derive_report_path(workdir, confirmed, route, defaults)
+
+    required_columns = _configured_list(
+        _config_value("required_columns", expected, route, defaults)
+    )
+    forbidden_names = _configured_list(
+        _config_value("forbidden_names", expected)
+    )
+    result = validate_report(report_path, required_columns, forbidden_names)
+
+    if expected and expected.get("expected_present") and confirmed:
+        result = _merge_coverage_warnings(
+            result,
+            validate_expected_present(confirmed, expected),
+        )
+
+    output = _path(args.output) or (workdir / "validation.json")
+    _write_json(output, result)
+    _stdout_json({"output": str(output), **result})
+    return 0 if result["passed"] else 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run the configurable worldbuilding extraction pipeline.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    def add_workdir(command: argparse.ArgumentParser) -> None:
+        command.add_argument(
+            "--workdir",
+            type=Path,
+            default=Path.cwd(),
+            help="Directory for default pipeline inputs and outputs.",
+        )
+
+    inspect = subparsers.add_parser("inspect", help="Inspect source text encoding.")
+    add_workdir(inspect)
+    inspect.add_argument("--source", required=True, type=Path)
+    inspect.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    inspect.add_argument("--encoding")
+    inspect.add_argument("--preview-chars", type=int, default=200)
+    inspect.add_argument("--output", type=Path)
+    inspect.set_defaults(func=cmd_inspect)
+
+    segment = subparsers.add_parser("segment", help="Split source text into segments.")
+    add_workdir(segment)
+    segment.add_argument("--source", required=True, type=Path)
+    segment.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    segment.add_argument("--encoding")
+    segment.add_argument("--output", type=Path)
+    segment.set_defaults(func=cmd_segment)
+
+    route = subparsers.add_parser(
+        "route-template",
+        help="Resolve template metadata from the registry.",
+    )
+    add_workdir(route)
+    route.add_argument("--template", required=True, type=Path)
+    route.add_argument("--template-registry", type=Path, default=DEFAULT_TEMPLATE_REGISTRY)
+    route.add_argument("--user-request", default="")
+    route.add_argument("--output", type=Path)
+    route.set_defaults(func=cmd_route_template)
+
+    extract = subparsers.add_parser(
+        "extract-candidates",
+        help="Extract candidates from segments.",
+    )
+    add_workdir(extract)
+    extract.add_argument("--mode-rule", required=True, type=Path)
+    extract.add_argument("--rule-pack", required=True, type=Path)
+    extract.add_argument("--segments", type=Path)
+    extract.add_argument("--output", type=Path)
+    extract.set_defaults(func=cmd_extract_candidates)
+
+    evidence = subparsers.add_parser(
+        "build-evidence",
+        help="Build evidence entries from candidates and segments.",
+    )
+    add_workdir(evidence)
+    evidence.add_argument("--segments", type=Path)
+    evidence.add_argument("--candidates", type=Path)
+    evidence.add_argument("--context-chars", type=int, default=80)
+    evidence.add_argument("--output", type=Path)
+    evidence.set_defaults(func=cmd_build_evidence)
+
+    render = subparsers.add_parser("render", help="Render a confirmed report.")
+    add_workdir(render)
+    render.add_argument("--confirmed", required=True, type=Path)
+    render.add_argument("--route", type=Path)
+    render.add_argument("--default-config", type=Path, default=DEFAULT_CONFIG)
+    render.add_argument("--output", type=Path)
+    render.set_defaults(func=cmd_render)
+
+    validate = subparsers.add_parser("validate", help="Validate a rendered report.")
+    add_workdir(validate)
+    validate.add_argument("--report", type=Path)
+    validate.add_argument("--expected", type=Path)
+    validate.add_argument("--confirmed", type=Path)
+    validate.add_argument("--route", type=Path)
+    validate.add_argument("--default-config", type=Path, default=DEFAULT_CONFIG)
+    validate.add_argument("--output", type=Path)
+    validate.set_defaults(func=cmd_validate)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    func: Callable[[argparse.Namespace], int] = args.func
+    return func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
