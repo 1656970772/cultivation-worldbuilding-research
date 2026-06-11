@@ -11,15 +11,26 @@ def _configured_list(value: Any) -> list[str]:
 
 
 def _table_headers(markdown: str) -> list[list[str]]:
-    headers: list[list[str]] = []
+    return [table["header"] for table in _markdown_tables(markdown)]
+
+
+def _markdown_tables(markdown: str) -> list[dict[str, list[list[str]] | list[str]]]:
+    tables: list[dict[str, list[list[str]] | list[str]]] = []
     lines = markdown.splitlines()
-    for index, line in enumerate(lines[:-1]):
-        stripped = line.strip()
+    index = 0
+    while index < len(lines) - 1:
+        header = lines[index].strip()
         separator = lines[index + 1].strip()
-        if not _is_table_row(stripped) or not _is_separator_row(separator):
+        if not _is_table_row(header) or not _is_separator_row(separator):
+            index += 1
             continue
-        headers.append(_table_cells(stripped))
-    return headers
+        rows: list[list[str]] = []
+        index += 2
+        while index < len(lines) and _is_table_row(lines[index].strip()):
+            rows.append(_table_cells(lines[index].strip()))
+            index += 1
+        tables.append({"header": _table_cells(header), "rows": rows})
+    return tables
 
 
 def _missing_columns(markdown: str, required_columns: list[str]) -> list[str]:
@@ -48,6 +59,26 @@ def _is_separator_row(line: str) -> bool:
     return bool(cells) and all(set(cell) <= {"-", ":"} and "-" in cell for cell in cells)
 
 
+def _duplicate_names(markdown: str) -> list[str]:
+    duplicates: list[str] = []
+    seen: set[str] = set()
+    for table in _markdown_tables(markdown):
+        header = table["header"]
+        if "丹药名称" not in header:
+            continue
+        name_index = header.index("丹药名称")
+        for row in table["rows"]:
+            if name_index >= len(row):
+                continue
+            name = row[name_index]
+            if not name:
+                continue
+            if name in seen and name not in duplicates:
+                duplicates.append(name)
+            seen.add(name)
+    return duplicates
+
+
 def validate_report(
     report_path: Path,
     required_columns: list[str],
@@ -74,6 +105,11 @@ def validate_report(
     if found_forbidden:
         blocking_errors.append(
             {"type": "forbidden_names_present", "names": found_forbidden}
+        )
+    duplicate_names = _duplicate_names(markdown)
+    if duplicate_names:
+        blocking_errors.append(
+            {"type": "duplicate_names", "duplicate_names": duplicate_names}
         )
     return {
         "passed": not blocking_errors,

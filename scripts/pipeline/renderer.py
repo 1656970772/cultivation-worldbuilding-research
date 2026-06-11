@@ -37,6 +37,15 @@ def _confirmed_items(report: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _validate_confirmed_source_spans(items: list[dict[str, Any]]) -> None:
+    for item in items:
+        source_spans = item.get("source_spans")
+        if not isinstance(source_spans, list) or not source_spans:
+            raise ValueError(
+                f"confirmed item missing source_spans: {item.get('name', '')}"
+            )
+
+
 def _derive_columns(items: list[dict[str, Any]]) -> list[str]:
     columns: list[str] = []
     for item in items:
@@ -124,6 +133,7 @@ def render_report(
 ) -> None:
     report_config = confirmed_report.get("report_config", {})
     items = _confirmed_items(confirmed_report)
+    _validate_confirmed_source_spans(items)
     unknown_text = str(
         _config_value("unknown_text", report_config, route_config, default_config) or ""
     )

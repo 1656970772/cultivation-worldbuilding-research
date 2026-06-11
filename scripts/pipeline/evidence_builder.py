@@ -26,6 +26,29 @@ def _candidate_local_span(
     raise ValueError(f"candidate missing local offsets: {candidate.get('name', '')}")
 
 
+def _validate_global_offsets(
+    candidate: dict[str, Any],
+    expected_start: int,
+    expected_end: int,
+) -> None:
+    if "start_char" in candidate and int(candidate["start_char"]) != expected_start:
+        raise ValueError(
+            f"candidate global offsets do not match local span: {candidate.get('name', '')}"
+        )
+    if "end_char" in candidate and int(candidate["end_char"]) != expected_end:
+        raise ValueError(
+            f"candidate global offsets do not match local span: {candidate.get('name', '')}"
+        )
+
+
+def _validate_span_text(candidate: dict[str, Any], text: str, start: int, end: int) -> None:
+    name = str(candidate.get("name", ""))
+    if name and text[start:end] != name:
+        raise ValueError(
+            f"candidate span text does not match name: {candidate.get('name', '')}"
+        )
+
+
 def _line_for_local_offset(segment: dict[str, Any], local_start: int) -> int:
     text = str(segment.get("text", ""))
     start_line = _int_value(segment.get("start_line"), 1)
@@ -57,8 +80,10 @@ def build_evidence_pack(
                 f"candidate offsets outside segment: {candidate.get('name', '')}"
             )
         segment_start = _int_value(segment.get("start_char"))
-        source_start = int(candidate.get("start_char", segment_start + local_start))
-        source_end = int(candidate.get("end_char", segment_start + local_end))
+        source_start = segment_start + local_start
+        source_end = segment_start + local_end
+        _validate_global_offsets(candidate, source_start, source_end)
+        _validate_span_text(candidate, text, local_start, local_end)
         evidence.append(
             {
                 "name": candidate.get("name", ""),
