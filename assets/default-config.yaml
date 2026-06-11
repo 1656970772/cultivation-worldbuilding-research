@@ -1,0 +1,12 @@
+encoding:
+  fallbacks: [utf-8-sig, utf-8, gb18030, gbk, gb2312]
+segmentation:
+  chapter_patterns:
+    - '^第[一二三四五六七八九十百千万零〇两0-9]+章'
+  max_chars_per_segment: 6000
+  overlap_chars: 300
+output:
+  unknown_text: 原文未说明
+  evidence_in_final_report: false
+  report_title_pattern: "《{work_title}》{subject_type}分析"
+  output_name_pattern: "{work_title}{subject_type}分析.md"

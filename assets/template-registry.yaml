@@ -1,0 +1,9 @@
+templates:
+  丹药分析模板.md:
+    primary_mode: entity
+    secondary_modes: [economy]
+    subject_type: 丹药
+    rule_pack: entity-medicine
+    output_name_pattern: "{work_title}丹药分析.md"
+    report_title_pattern: "《{work_title}》{subject_type}分析"
+    required_columns: [丹药名称, 稀有度, 功效, 用途, 丹方, 炼制方式, 来源, 限制/副作用, 适用境界]
