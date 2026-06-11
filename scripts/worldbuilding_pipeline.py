@@ -24,6 +24,10 @@ from scripts.pipeline.validator import validate_expected_present, validate_repor
 
 DEFAULT_CONFIG = ROOT / "assets" / "default-config.yaml"
 DEFAULT_TEMPLATE_REGISTRY = ROOT / "assets" / "template-registry.yaml"
+INSPECT_REPORT_NAME = "inspect-report.json"
+ROUTE_REPORT_NAME = "route-report.json"
+EVIDENCE_PACK_NAME = "evidence-pack.jsonl"
+VALIDATION_REPORT_NAME = "validation-report.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -72,6 +76,37 @@ def _write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
 
 def _stdout_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, ensure_ascii=False))
+
+
+def _markdown_table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _is_markdown_table_row(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("|") and stripped.endswith("|")
+
+
+def _is_markdown_separator_row(line: str) -> bool:
+    if not _is_markdown_table_row(line):
+        return False
+    cells = _markdown_table_cells(line)
+    return bool(cells) and all(
+        set(cell) <= {"-", ":", " "} and "-" in cell
+        for cell in cells
+    )
+
+
+def _template_columns(template_path: Path | None) -> list[str]:
+    if template_path is None:
+        return []
+    lines = template_path.read_text(encoding="utf-8").splitlines()
+    for index in range(len(lines) - 1):
+        header = lines[index].strip()
+        separator = lines[index + 1].strip()
+        if _is_markdown_table_row(header) and _is_markdown_separator_row(separator):
+            return [cell for cell in _markdown_table_cells(header) if cell]
+    return []
 
 
 def _configured_list(value: Any) -> list[str]:
@@ -139,7 +174,7 @@ def _derive_report_path(
 
 
 def _default_route_path(workdir: Path) -> Path | None:
-    path = workdir / "route.json"
+    path = workdir / ROUTE_REPORT_NAME
     return path if path.exists() else None
 
 
@@ -150,6 +185,7 @@ def _default_confirmed_path(workdir: Path) -> Path | None:
 
 def cmd_inspect(args: argparse.Namespace) -> int:
     config = load_yaml(Path(args.config))
+    template_path = _path(args.template)
     text, meta = read_text_with_encoding(
         Path(args.source),
         encoding=args.encoding,
@@ -163,8 +199,11 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         "char_count": meta["char_count"],
         "replacement_count": meta["replacement_count"],
         "preview": text[: int(args.preview_chars)],
+        "template_columns_found": _template_columns(template_path),
     }
-    output = _path(args.output) or (_workdir(args) / "inspect.json")
+    if template_path is not None:
+        result["template"] = str(template_path)
+    output = _path(args.output) or (_workdir(args) / INSPECT_REPORT_NAME)
     _write_json(output, result)
     _stdout_json({"output": str(output), **result})
     return 0
@@ -202,7 +241,7 @@ def cmd_route_template(args: argparse.Namespace) -> int:
         Path(args.template),
         args.user_request,
     )
-    output = _path(args.output) or (_workdir(args) / "route.json")
+    output = _path(args.output) or (_workdir(args) / ROUTE_REPORT_NAME)
     _write_json(output, route)
     _stdout_json({"output": str(output), "template_name": route["template_name"]})
     return 0
@@ -237,7 +276,7 @@ def cmd_build_evidence(args: argparse.Namespace) -> int:
         segments,
         context_chars=int(args.context_chars),
     )
-    output = _path(args.output) or (workdir / "evidence.jsonl")
+    output = _path(args.output) or (workdir / EVIDENCE_PACK_NAME)
     _write_jsonl(output, evidence)
     _stdout_json({"output": str(output), "evidence": len(evidence)})
     return 0
@@ -298,7 +337,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
             validate_expected_present(confirmed, expected),
         )
 
-    output = _path(args.output) or (workdir / "validation.json")
+    output = _path(args.output) or (workdir / VALIDATION_REPORT_NAME)
     _write_json(output, result)
     _stdout_json({"output": str(output), **result})
     return 0 if result["passed"] else 1
@@ -322,6 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_workdir(inspect)
     inspect.add_argument("--source", required=True, type=Path)
     inspect.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    inspect.add_argument("--template", type=Path)
     inspect.add_argument("--encoding")
     inspect.add_argument("--preview-chars", type=int, default=200)
     inspect.add_argument("--output", type=Path)
