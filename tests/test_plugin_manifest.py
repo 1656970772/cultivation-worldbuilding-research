@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 
-ROOT = Path(r"C:\Users\Administrator\plugins\cultivation-worldbuilding-research")
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_plugin_manifest_uses_official_layout():
