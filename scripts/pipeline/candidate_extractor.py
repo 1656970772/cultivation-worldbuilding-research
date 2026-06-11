@@ -55,6 +55,7 @@ def _trim_left_prefixes(start: int, end: int, text: str, strategy: dict) -> int:
         key=len,
         reverse=True,
     )
+    trim_patterns = _configured_list(strategy.get("left_trim_patterns"))
     changed = True
     while changed and start < end:
         changed = False
@@ -62,6 +63,14 @@ def _trim_left_prefixes(start: int, end: int, text: str, strategy: dict) -> int:
         for token in trim_tokens:
             if token and name.startswith(token) and len(name) > len(token):
                 start += len(token)
+                changed = True
+                break
+        if changed:
+            continue
+        for pattern in trim_patterns:
+            match = re.match(pattern, name)
+            if match and 0 < match.end() < len(name):
+                start += match.end()
                 changed = True
                 break
     return start

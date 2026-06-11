@@ -172,6 +172,41 @@ def test_core_medicine_names_survive_generic_noise_filters():
     assert {"黄龙丹", "金髓丸", "抽髓丸", "筑基丹"} <= names
 
 
+def test_trims_quantity_prefixes_and_preserves_offsets():
+    rules = _medicine_rules()
+    cases = [
+        ("韩立服下这枚筑基丹。", "筑基丹", {"枚筑基丹", "这枚筑基丹"}),
+        ("韩立服下三颗黑炎丹。", "黑炎丹", {"三颗黑炎丹", "颗黑炎丹"}),
+        ("韩立服下一瓶回阳水。", "回阳水", {"一瓶回阳水", "瓶回阳水"}),
+    ]
+
+    for text, expected, forbidden in cases:
+        candidates = extract_candidates_from_text(text, rules)
+        names = {item["name"] for item in candidates}
+        item = next(candidate for candidate in candidates if candidate["name"] == expected)
+
+        assert expected in names
+        assert not forbidden & names
+        assert item["start"] == text.index(expected)
+        assert item["end"] == item["start"] + len(expected)
+        assert text[item["start"]:item["end"]] == expected
+
+
+def test_rejects_generic_danwan_and_prefixed_core_noise_terms():
+    rules = _medicine_rules()
+    examples = {
+        "这些丹丸都是泛称丹药。": {"丹丸"},
+        "六级妖丹可用于炼制丹药。": {"六级妖丹", "妖丹"},
+        "妖兽内丹可用于炼制丹药。": {"妖兽内丹", "内丹"},
+        "他结成金丹后又听闻丹药。": {"结成金丹", "金丹"},
+    }
+
+    for text, forbidden in examples.items():
+        names = {item["name"] for item in extract_candidates_from_text(text, rules)}
+
+        assert not forbidden & names
+
+
 def test_rejects_generic_medicine_terms_and_overlapping_suffixes():
     rules = _medicine_rules()
     text = "这些丹药的丹方复杂，的丹也不应抽出。"
