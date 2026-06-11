@@ -1,0 +1,12 @@
+rule_pack: entity-medicine
+subject_type: 丹药
+include_suffixes: [丹, 丸, 散, 膏, 液, 水, 露, 药, 灵液]
+context_triggers: [丹药, 灵丹, 药丸, 药液, 丹方, 服用, 服下, 吞服, 炼制, 配制, 药效, 解药, 毒药, 灵药, 延寿, 筑基]
+noise_exact: [丹田, 结丹, 金丹, 内丹, 妖丹]
+noise_patterns:
+  candidate_name: [散发, 消散, 分散, 脸上露, 面露, 止水, 沉水, 水面]
+  local_phrase: [脸上露出, 面露, 露出笑意, 止水, 沉水, 水面]
+  strong_context: []
+field_schema: [丹药名称, 稀有度, 功效, 用途, 丹方, 炼制方式, 来源, 限制/副作用, 适用境界]
+field_defaults:
+  unknown: 原文未说明

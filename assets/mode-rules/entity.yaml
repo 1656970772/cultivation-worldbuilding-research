@@ -1,0 +1,11 @@
+mode: entity
+candidate_strategy:
+  context_window_chars: 80
+  noise_local_window_chars: 4
+  min_name_chars: 2
+  max_name_chars: 8
+  left_boundary_tokens: [，, 。, 、, ；, ：, ！, ？, " ", 和, 与, 及, 或, 又, 并, 后, 前, 他, 她, 其, 服下, 服用, 吞服, 听闻, 闻, 检查, 炼制, 配制, 使用]
+  name_patterns:
+    - '^[\u4e00-\u9fff]{1,7}(?:丹|丸|散|膏|液|水|露|药|灵液)$'
+status:
+  default_candidate_status: needs-review
