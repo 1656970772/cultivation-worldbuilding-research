@@ -8,6 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "worldbuilding_pipeline.py"
 
 
+def _write_json(path, data, encoding="utf-8"):
+    path.write_text(
+        json.dumps(data, ensure_ascii=False) + "\n",
+        encoding=encoding,
+    )
+
+
 def _run_cli(*args):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
@@ -96,7 +103,7 @@ def test_cli_extract_candidates_writes_segment_and_global_offsets(tmp_path):
     }
     (tmp_path / "segments.jsonl").write_text(
         json.dumps(segment, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
     result = _run_cli(
         "extract-candidates",
@@ -118,6 +125,48 @@ def test_cli_extract_candidates_writes_segment_and_global_offsets(tmp_path):
     assert item["end"] == item["start"] + len("黄龙丹")
     assert item["start_char"] == 1000 + item["start"]
     assert item["end_char"] == 1000 + item["end"]
+
+
+def test_cli_render_accepts_bom_confirmed_and_keeps_expected_only_out(tmp_path):
+    route = {
+        "subject_type": "丹药",
+        "output_name_pattern": "{work_title}-bom.md",
+        "report_title_pattern": "《{work_title}》{subject_type}分析",
+        "required_columns": ["丹药名称"],
+    }
+    confirmed = {
+        "work_title": "测试书",
+        "items": [
+            {
+                "status": "confirmed",
+                "name": "黄龙丹",
+                "fields": {"丹药名称": "黄龙丹"},
+                "source_spans": [
+                    {"segment_id": "seg-000001", "line": 1, "summary": "韩立服下黄龙丹"}
+                ],
+            }
+        ],
+    }
+    (tmp_path / "expected.yaml").write_text(
+        "expected_present: [黄龙丹, 金髓丸]\n",
+        encoding="utf-8",
+    )
+    _write_json(tmp_path / "route-report.json", route)
+    confirmed_path = tmp_path / "confirmed.json"
+    _write_json(confirmed_path, confirmed, encoding="utf-8-sig")
+
+    result = _run_cli(
+        "render",
+        "--workdir",
+        tmp_path,
+        "--confirmed",
+        confirmed_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = (tmp_path / "测试书-bom.md").read_text(encoding="utf-8")
+    assert "黄龙丹" in report
+    assert "金髓丸" not in report
 
 
 def test_cli_build_evidence_uses_pack_default_name(tmp_path):
@@ -177,15 +226,9 @@ def test_cli_render_reads_route_report_by_default(tmp_path):
             }
         ],
     }
-    (tmp_path / "route-report.json").write_text(
-        json.dumps(route, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(tmp_path / "route-report.json", route)
     confirmed_path = tmp_path / "confirmed.json"
-    confirmed_path.write_text(
-        json.dumps(confirmed, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    _write_json(confirmed_path, confirmed)
 
     result = _run_cli(
         "render",
@@ -221,3 +264,66 @@ def test_cli_validate_uses_report_default_name(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "validation-report.json").exists()
     assert not (tmp_path / "validation.json").exists()
+
+
+def test_cli_validate_expected_present_warning_does_not_block(tmp_path):
+    confirmed = {
+        "work_title": "测试书",
+        "items": [
+            {
+                "status": "confirmed",
+                "name": "黄龙丹",
+                "fields": {"丹药名称": "黄龙丹"},
+                "source_spans": [
+                    {"segment_id": "seg-000001", "line": 1, "summary": "韩立服下黄龙丹"}
+                ],
+            }
+        ],
+    }
+    report = tmp_path / "report.md"
+    report.write_text(
+        "\n".join(
+            [
+                "# 测试报告",
+                "",
+                "| 丹药名称 |",
+                "| --- |",
+                "| 黄龙丹 |",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    expected = tmp_path / "expected.yaml"
+    expected.write_text(
+        "\n".join(
+            [
+                "required_columns: [丹药名称]",
+                "expected_present: [黄龙丹, 金髓丸]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    confirmed_path = tmp_path / "confirmed.json"
+    _write_json(confirmed_path, confirmed, encoding="utf-8-sig")
+
+    result = _run_cli(
+        "validate",
+        "--workdir",
+        tmp_path,
+        "--report",
+        report,
+        "--expected",
+        expected,
+        "--confirmed",
+        confirmed_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    validation = json.loads(
+        (tmp_path / "validation-report.json").read_text(encoding="utf-8")
+    )
+    assert validation["passed"] is True
+    assert validation["blocking_errors"] == []
+    assert validation["coverage_warnings"]["expected_present_missing"] == ["金髓丸"]

@@ -41,7 +41,7 @@ def _workdir(args: argparse.Namespace) -> Path:
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8-sig") as f:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError(f"JSON root must be an object: {path}")
@@ -52,7 +52,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     if not path.exists():
         raise FileNotFoundError(path)
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         if not line.strip():
             continue
         item = json.loads(line)
