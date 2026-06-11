@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from scripts.pipeline.config_loader import load_yaml
 from scripts.pipeline.template_router import route_template
 
 
@@ -24,3 +27,12 @@ def test_routes_phase1_templates():
         "限制/副作用",
         "适用境界",
     ]
+
+
+@pytest.mark.parametrize("content", ["false", "0", "null", ""])
+def test_load_yaml_rejects_falsey_non_mapping_root(tmp_path, content):
+    path = tmp_path / "config.yaml"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="YAML root must be a mapping"):
+        load_yaml(path)
