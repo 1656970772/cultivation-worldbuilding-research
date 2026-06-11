@@ -40,8 +40,12 @@ def _missing_columns(markdown: str, required_columns: list[str]) -> list[str]:
     for header in headers:
         if all(column in header for column in required_columns):
             return []
-    present_columns = {column for header in headers for column in header}
-    return [column for column in required_columns if column not in present_columns]
+    closest_header = max(
+        headers,
+        key=lambda header: sum(column in header for column in required_columns),
+        default=[],
+    )
+    return [column for column in required_columns if column not in closest_header]
 
 
 def _is_table_row(line: str) -> bool:

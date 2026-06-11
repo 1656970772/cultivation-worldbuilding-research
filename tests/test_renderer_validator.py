@@ -160,6 +160,38 @@ def test_validate_report_rejects_duplicate_names(tmp_path):
     assert duplicate_error["duplicate_names"] == ["黄龙丹"]
 
 
+def test_validate_report_requires_one_complete_table_schema(tmp_path):
+    report = tmp_path / "split-schema.md"
+    required_columns = ["丹药名称", "稀有度", "功效", "用途"]
+    report.write_text(
+        "\n".join(
+            [
+                "# 《凡人修仙传》丹药分析",
+                "",
+                "| 丹药名称 | 稀有度 |",
+                "| --- | --- |",
+                "| 黄龙丹 | 原文未说明 |",
+                "",
+                "| 功效 | 用途 |",
+                "| --- | --- |",
+                "| 辅助修炼 | 修炼 |",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = validate_report(report, required_columns, [])
+    missing_error = next(
+        error
+        for error in result["blocking_errors"]
+        if error["type"] == "missing_required_columns"
+    )
+
+    assert result["passed"] is False
+    assert missing_error["columns"]
+
+
 def test_expected_present_is_validation_only(tmp_path):
     confirmed = {
         "work_title": "凡人修仙传",
