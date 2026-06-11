@@ -1,11 +1,28 @@
 rule_pack: entity-medicine
 subject_type: 丹药
 include_suffixes: [丹, 丸, 散, 膏, 液, 水, 露, 药, 灵液]
+strong_suffixes: [丹, 丸, 膏, 灵液]
+weak_suffixes: [散, 液, 水, 露, 药]
 context_triggers: [丹药, 灵丹, 药丸, 药液, 丹方, 服用, 服下, 吞服, 炼制, 配制, 药效, 解药, 毒药, 灵药, 延寿, 筑基]
-noise_exact: [丹田, 结丹, 金丹, 内丹, 妖丹]
+candidate_strategy:
+  context_window_chars: 60
+  weak_context_window_chars: 12
+  max_name_chars: 8
+  additional_left_boundary_tokens: [的, 个, 这个, 这种, 这些, 那个, 那种, 那些, 几个, 几种, 一种, 一些, 各种, 任何, 所有, 曾, 过, 不是, 是, 有, 叫做, 名为, 名叫, 唤作, 收起, 取出, 递给, 给, 说, 道, 服下, 服用, 吞服, 听闻, 闻, 检查, 炼制, 配制, 使用]
+  left_trim_tokens: [我手里的这个, 几种不同的, 不同的, 这个, 这种, 这些, 那个, 那种, 那些, 几个, 几种, 一种, 一些, 各种, 任何, 所有, 曾, 过, 的, 个, 不是]
+  forbidden_name_prefixes: [我手里的这个, 几种不同的, 不同的, 这个, 这种, 这些, 那个, 那种, 那些, 几个, 几种, 一种, 一些, 各种, 任何, 所有, 的, 个, 不是]
+  forbidden_name_substrings: [不是, 出现在]
+  right_invalid_tokens: [出, 发]
+  name_patterns:
+    - '^[\u4e00-\u9fff]{1,7}(?:丹|丸|膏|灵液)$'
+    - '^[\u4e00-\u9fff]{2,4}(?:散|液|水|露|药)$'
+  weak_name_patterns:
+    - '^[\u4e00-\u9fff]{2,4}(?:散|液|水|露|药)$'
+  weak_context_triggers: [服用, 服下, 吞服, 炼制, 配制, 药效, 解药, 毒药, 灵药, 延寿, 丹方, 药液]
+noise_exact: [丹田, 结丹, 金丹, 内丹, 妖丹, 丹药, 灵丹, 药丸, 药液, 丹方, 解药, 毒药, 灵药]
 noise_patterns:
-  candidate_name: [散发, 消散, 分散, 脸上露, 面露, 止水, 沉水, 水面]
-  local_phrase: [脸上露出, 面露, 露出笑意, 止水, 沉水, 水面]
+  candidate_name: [散发, 消散, 分散, 脸上露, 面露, 流露, 不禁露, 止水, 沉水, 水面, 心如秋水]
+  local_phrase: [脸上露出, 面露, 流露出, 不禁露出, 露出笑意, 止水, 沉水, 水面, 心如秋水]
   strong_context: []
 field_schema: [丹药名称, 稀有度, 功效, 用途, 丹方, 炼制方式, 来源, 限制/副作用, 适用境界]
 field_defaults:
