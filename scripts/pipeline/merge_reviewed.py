@@ -115,6 +115,9 @@ def _decision_name(decision: dict, entry: dict | None) -> str:
 def _aliases(decision: dict, entry: dict | None, name: str) -> list[str]:
     values: list[str] = []
     if entry is not None:
+        entry_name = normalize_candidate_name(str(entry.get("name", "")))
+        if entry_name and entry_name != name:
+            values.append(entry_name)
         values.extend(_configured_list(entry.get("aliases")))
     values.extend(_configured_list(decision.get("aliases")))
     return sorted(
@@ -183,6 +186,12 @@ def _append_unique_dicts(target: list[dict], incoming: list[dict]) -> None:
             target.append(item)
 
 
+def _valid_source_spans(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(item, dict) for item in value
+    )
+
+
 def _finalize_report(report: dict[str, Any]) -> None:
     report["counts"]["confirmed"] = len(report["confirmed"])
     report["counts"]["rejected"] = len(report["rejected"])
@@ -249,13 +258,24 @@ def merge_reviewed_entries(
             )
             continue
 
+        if not name:
+            _add_blocking_error(
+                report,
+                _blocking_error(
+                    "missing_name",
+                    f"missing_name: confirmed decision has no item name: {review_id}",
+                    decision,
+                ),
+            )
+            continue
+
         source_spans = entry.get("source_spans")
-        if not isinstance(source_spans, list) or not source_spans:
+        if not _valid_source_spans(source_spans):
             _add_blocking_error(
                 report,
                 _blocking_error(
                     "missing_source_spans",
-                    f"confirmed item missing source_spans: {name}",
+                    f"confirmed item invalid source_spans: {name}",
                     decision,
                 ),
             )
@@ -298,7 +318,12 @@ def read_decisions_jsonl(path: Path) -> list[dict]:
     for line_number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         if not line.strip():
             continue
-        item = json.loads(line)
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Invalid JSONL: {path}:{line_number}: {exc.msg}"
+            ) from exc
         if not isinstance(item, dict):
             raise ValueError(f"JSONL line must be a JSON object: {path}:{line_number}")
         decisions.append(item)

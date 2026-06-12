@@ -170,6 +170,44 @@ def test_confirmed_item_without_source_spans_raises_blocking_error():
         )
 
 
+def test_confirmed_item_with_non_dict_source_span_raises_blocking_error():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    with pytest.raises(ValueError, match="source_spans"):
+        merge_reviewed_entries(
+            [_entry(source_spans=[None])],
+            [_decision()],
+            _curation(),
+            {},
+        )
+
+
+def test_confirmed_item_with_empty_normalized_name_raises_blocking_error():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    with pytest.raises(ValueError, match="missing_name"):
+        merge_reviewed_entries(
+            [_entry(name="")],
+            [_decision(name="", fields={})],
+            _curation(),
+            {},
+        )
+
+
+def test_decision_rename_preserves_review_entry_name_as_alias():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    confirmed, _report = merge_reviewed_entries(
+        [_entry(name="黄龙丹")],
+        [_decision(name="黄龙丹丸")],
+        _curation(),
+        {},
+    )
+
+    assert confirmed["items"][0]["name"] == "黄龙丹丸"
+    assert "黄龙丹" in confirmed["items"][0]["aliases"]
+
+
 def test_missing_or_blank_required_fields_use_unknown_text_and_name_field_uses_item_name():
     merge_reviewed_entries = _module().merge_reviewed_entries
     curation = _curation(required=["丹药名称", "稀有度", "功效"], unknown_text=None)
@@ -270,6 +308,12 @@ def test_read_decisions_jsonl_reads_utf8_sig_skips_blanks_and_requires_objects(t
     bad_path.write_text("[1, 2, 3]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="JSON object"):
         module.read_decisions_jsonl(bad_path)
+
+    malformed_path = tmp_path / "malformed-decisions.jsonl"
+    malformed_path.write_text('{"review_id": "medicine-000001"', encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        module.read_decisions_jsonl(malformed_path)
+    assert f"Invalid JSONL: {malformed_path}:1:" in str(exc_info.value)
 
 
 def test_write_confirmed_outputs_writes_both_json_files(tmp_path):
