@@ -1,0 +1,13 @@
+curation_pack: entity-medicine
+subject_type: 丹药
+review:
+  min_evidence_for_review: 1
+  auto_confirm: false
+  max_evidence_per_entry: 5
+  reject_exact: [丹田, 结丹, 金丹, 内丹, 妖丹, 丹药, 丹丸, 灵丹, 药丸, 药液, 丹方, 解药, 毒药, 灵药]
+  reject_name_patterns:
+    - '.*(?:结丹|炼丹|成丹|丹田|散发|脸上露|面露).*'
+  required_confirmed_examples: [抽髓丸, 黄龙丹, 金髓丸, 清灵散, 筑基丹, 定颜丹, 补天丹, 回阳水]
+fields:
+  required: [丹药名称, 稀有度, 功效, 用途, 丹方, 炼制方式, 来源, 限制/副作用, 适用境界]
+  unknown_text: 原文未说明
