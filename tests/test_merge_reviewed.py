@@ -189,6 +189,46 @@ def test_missing_or_blank_required_fields_use_unknown_text_and_name_field_uses_i
     }
 
 
+def test_report_config_required_columns_and_unknown_text_fill_when_curation_fields_are_empty():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+    curation = {"work_title": "凡人修仙传", "fields": {}}
+    report_config = {
+        "required_columns": ["丹药名称", "稀有度"],
+        "unknown_text": "未知",
+    }
+
+    confirmed, _report = merge_reviewed_entries(
+        [_entry()],
+        [_decision(fields={})],
+        curation,
+        report_config,
+    )
+
+    assert confirmed["items"][0]["fields"] == {
+        "丹药名称": "黄龙丹",
+        "稀有度": "未知",
+    }
+
+
+def test_curation_unknown_text_overrides_report_config_unknown_text_for_field_fill():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+    curation = _curation(required=["丹药名称", "稀有度"], unknown_text="未载")
+    report_config = {"required_columns": ["丹药名称", "稀有度"], "unknown_text": "未知"}
+
+    confirmed, _report = merge_reviewed_entries(
+        [_entry()],
+        [_decision(fields={"丹药名称": "黄龙丹", "稀有度": ""})],
+        curation,
+        report_config,
+    )
+
+    assert confirmed["report_config"]["unknown_text"] == "未知"
+    assert confirmed["items"][0]["fields"] == {
+        "丹药名称": "黄龙丹",
+        "稀有度": "未载",
+    }
+
+
 def test_needs_review_decision_stays_out_of_confirmed_items_and_is_reported():
     merge_reviewed_entries = _module().merge_reviewed_entries
 
@@ -202,6 +242,18 @@ def test_needs_review_decision_stays_out_of_confirmed_items_and_is_reported():
     assert confirmed["items"] == []
     assert report["counts"]["needs_review"] == 1
     assert report["needs_review"][0]["review_id"] == "medicine-000001"
+
+
+def test_invalid_decision_raises_blocking_error():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    with pytest.raises(ValueError, match="decision must be one of"):
+        merge_reviewed_entries(
+            [_entry()],
+            [_decision(decision="approved")],
+            _curation(),
+            {},
+        )
 
 
 def test_read_decisions_jsonl_reads_utf8_sig_skips_blanks_and_requires_objects(tmp_path):
@@ -237,3 +289,12 @@ def test_write_confirmed_outputs_writes_both_json_files(tmp_path):
 
     assert json.loads(confirmed_path.read_text(encoding="utf-8")) == confirmed
     assert json.loads(report_path.read_text(encoding="utf-8")) == report
+    confirmed_text = confirmed_path.read_text(encoding="utf-8")
+    report_text = report_path.read_text(encoding="utf-8")
+    assert confirmed_text.startswith('{\n  "work_title": "凡人修仙传"')
+    assert report_text.startswith('{\n  "counts": {')
+    assert "\\u51e1\\u4eba" not in confirmed_text
+    assert confirmed_path.read_bytes().startswith(b"{")
+    assert "  \"report_config\": {}" in confirmed_text
+    assert confirmed_text.endswith("\n")
+    assert report_text.endswith("\n")

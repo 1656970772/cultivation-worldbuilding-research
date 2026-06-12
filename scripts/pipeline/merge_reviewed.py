@@ -24,14 +24,29 @@ def _field_config(curation: dict) -> dict[str, Any]:
     return fields if isinstance(fields, dict) else {}
 
 
-def _required_fields(curation: dict) -> list[str]:
-    return _configured_list(_field_config(curation).get("required"))
+def _required_fields(curation: dict, report_config: dict | None = None) -> list[str]:
+    required = _configured_list(_field_config(curation).get("required"))
+    if required:
+        return required
+    if isinstance(report_config, dict):
+        return _configured_list(report_config.get("required_columns"))
+    return []
 
 
-def _unknown_text(curation: dict) -> str:
-    value = _field_config(curation).get("unknown_text", DEFAULT_UNKNOWN_TEXT)
+def _text_or_none(value: Any) -> str | None:
     text = str(value).strip() if value is not None else ""
-    return text or DEFAULT_UNKNOWN_TEXT
+    return text or None
+
+
+def _unknown_text(curation: dict, report_config: dict | None = None) -> str:
+    text = _text_or_none(_field_config(curation).get("unknown_text"))
+    if text is not None:
+        return text
+    if isinstance(report_config, dict):
+        text = _text_or_none(report_config.get("unknown_text"))
+        if text is not None:
+            return text
+    return DEFAULT_UNKNOWN_TEXT
 
 
 def _report_config(curation: dict, report_config: dict | None) -> dict[str, Any]:
@@ -181,8 +196,8 @@ def merge_reviewed_entries(
     curation: dict,
     report_config: dict,
 ) -> tuple[dict, dict]:
-    required_fields = _required_fields(curation)
-    unknown_text = _unknown_text(curation)
+    required_fields = _required_fields(curation, report_config)
+    unknown_text = _unknown_text(curation, report_config)
     entry_by_id = {
         str(entry.get("review_id", "")): entry
         for entry in review_entries
