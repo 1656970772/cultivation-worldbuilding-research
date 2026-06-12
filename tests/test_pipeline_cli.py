@@ -462,6 +462,41 @@ def test_cli_make_review_pack_writes_jsonl_and_markdown_defaults(tmp_path):
     assert "- 功效: 原文未说明" in markdown
 
 
+def test_cli_split_review_pack_writes_manifest_default(tmp_path):
+    _write_jsonl(
+        tmp_path / "review-pack.jsonl",
+        [
+            {"review_id": "review-001", "name": "A"},
+            {"review_id": "review-002", "name": "B"},
+            {"review_id": "review-003", "name": "C"},
+        ],
+    )
+
+    result = _run_cli(
+        "split-review-pack",
+        "--workdir",
+        tmp_path,
+        "--entries-per-shard",
+        "2",
+    )
+
+    assert result.returncode == 0, result.stderr
+    manifest_path = tmp_path / "review-decisions.parts" / "review-shard-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["entries_per_shard"] == 2
+    assert manifest["total_entries"] == 3
+    assert [shard["count"] for shard in manifest["shards"]] == [2, 1]
+
+    stdout = json.loads(result.stdout)
+    assert stdout == {
+        "manifest": str(manifest_path),
+        "parts_dir": str(tmp_path / "review-decisions.parts"),
+        "shards": 2,
+        "total_entries": 3,
+    }
+
+
 def test_cli_merge_reviewed_writes_confirmed_outputs_and_summary(tmp_path):
     _write_jsonl(
         tmp_path / "review-pack.jsonl",

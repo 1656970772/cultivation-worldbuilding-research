@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.pipeline.candidate_extractor import extract_candidates_from_text
 from scripts.pipeline.config_loader import load_yaml
+from scripts.pipeline.decision_validator import resolve_review_workflow
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
 from scripts.pipeline.merge_reviewed import (
@@ -26,6 +27,7 @@ from scripts.pipeline.review_pack import (
     load_curation_pack,
     write_review_pack,
 )
+from scripts.pipeline.review_shards import split_review_pack
 from scripts.pipeline.rule_pack import load_rule_pack
 from scripts.pipeline.segmenter import segment_text, write_jsonl
 from scripts.pipeline.template_router import route_template
@@ -317,6 +319,43 @@ def cmd_make_review_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_split_review_pack(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    workflow = None
+    if args.curation is not None:
+        workflow = resolve_review_workflow(load_yaml(Path(args.curation)))
+
+    entries_per_shard = args.entries_per_shard
+    if entries_per_shard is None:
+        entries_per_shard = workflow.entries_per_shard if workflow is not None else 60
+
+    review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
+    if args.parts_dir is not None:
+        parts_dir = Path(args.parts_dir)
+    elif workflow is not None:
+        parts_dir = workdir / workflow.part_dir
+    else:
+        parts_dir = workdir / "review-decisions.parts"
+    manifest_path = _path(args.manifest)
+
+    manifest = split_review_pack(
+        review_pack,
+        parts_dir,
+        entries_per_shard=entries_per_shard,
+        manifest_path=manifest_path,
+    )
+    output_manifest = manifest_path or (parts_dir / "review-shard-manifest.json")
+    _stdout_json(
+        {
+            "manifest": str(output_manifest),
+            "parts_dir": str(parts_dir),
+            "shards": len(manifest["shards"]),
+            "total_entries": manifest["total_entries"],
+        }
+    )
+    return 0
+
+
 def cmd_merge_reviewed(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
@@ -500,6 +539,18 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--output-jsonl", type=Path)
     review.add_argument("--output-md", type=Path)
     review.set_defaults(func=cmd_make_review_pack)
+
+    split_review = subparsers.add_parser(
+        "split-review-pack",
+        help="Split review pack entries into review shards.",
+    )
+    add_workdir(split_review)
+    split_review.add_argument("--review-pack", type=Path)
+    split_review.add_argument("--curation", type=Path)
+    split_review.add_argument("--entries-per-shard", type=int)
+    split_review.add_argument("--parts-dir", type=Path)
+    split_review.add_argument("--manifest", type=Path)
+    split_review.set_defaults(func=cmd_split_review_pack)
 
     merge = subparsers.add_parser(
         "merge-reviewed",
