@@ -194,6 +194,18 @@ def test_confirmed_item_with_empty_normalized_name_raises_blocking_error():
         )
 
 
+def test_confirmed_item_with_null_names_raises_blocking_error():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    with pytest.raises(ValueError, match="missing_name"):
+        merge_reviewed_entries(
+            [_entry(name=None)],
+            [_decision(name=None, fields={})],
+            _curation(),
+            {},
+        )
+
+
 def test_decision_rename_preserves_review_entry_name_as_alias():
     merge_reviewed_entries = _module().merge_reviewed_entries
 
@@ -206,6 +218,21 @@ def test_decision_rename_preserves_review_entry_name_as_alias():
 
     assert confirmed["items"][0]["name"] == "黄龙丹丸"
     assert "黄龙丹" in confirmed["items"][0]["aliases"]
+
+
+def test_null_entry_name_and_aliases_are_not_emitted_as_aliases_when_decision_names_item():
+    merge_reviewed_entries = _module().merge_reviewed_entries
+
+    confirmed, _report = merge_reviewed_entries(
+        [_entry(name=None, aliases=[None])],
+        [_decision(name="黄龙丹丸", aliases=[None])],
+        _curation(),
+        {},
+    )
+
+    assert confirmed["items"][0]["name"] == "黄龙丹丸"
+    assert "None" not in confirmed["items"][0]["aliases"]
+    assert confirmed["items"][0]["aliases"] == []
 
 
 def test_missing_or_blank_required_fields_use_unknown_text_and_name_field_uses_item_name():

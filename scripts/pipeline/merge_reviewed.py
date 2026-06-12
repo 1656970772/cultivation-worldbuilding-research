@@ -63,6 +63,20 @@ def _blank(value: Any) -> bool:
     return value is None or str(value).strip() == ""
 
 
+def _normalized_candidate_value(value: Any) -> str:
+    if value is None:
+        return ""
+    return normalize_candidate_name(value)
+
+
+def _raw_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
 def _summary(decision: dict, name: str) -> dict[str, Any]:
     item = {
         "review_id": str(decision.get("review_id", "")),
@@ -79,7 +93,7 @@ def _blocking_error(error_type: str, message: str, decision: dict | None = None)
         if "review_id" in decision:
             error["review_id"] = str(decision.get("review_id", ""))
         if "name" in decision:
-            error["name"] = str(decision.get("name", ""))
+            error["name"] = _normalized_candidate_value(decision.get("name"))
     return error
 
 
@@ -104,30 +118,28 @@ def _add_blocking_error(report: dict[str, Any], error: dict[str, Any]) -> None:
 
 
 def _decision_name(decision: dict, entry: dict | None) -> str:
-    decision_name = normalize_candidate_name(str(decision.get("name", "")))
+    decision_name = _normalized_candidate_value(decision.get("name"))
     if decision_name:
         return decision_name
     if entry is None:
         return ""
-    return normalize_candidate_name(str(entry.get("name", "")))
+    return _normalized_candidate_value(entry.get("name"))
 
 
 def _aliases(decision: dict, entry: dict | None, name: str) -> list[str]:
-    values: list[str] = []
+    values: list[Any] = []
     if entry is not None:
-        entry_name = normalize_candidate_name(str(entry.get("name", "")))
+        entry_name = _normalized_candidate_value(entry.get("name"))
         if entry_name and entry_name != name:
             values.append(entry_name)
-        values.extend(_configured_list(entry.get("aliases")))
-    values.extend(_configured_list(decision.get("aliases")))
-    return sorted(
-        {
-            normalize_candidate_name(alias)
-            for alias in values
-            if normalize_candidate_name(alias)
-            and normalize_candidate_name(alias) != name
-        }
-    )
+        values.extend(_raw_list(entry.get("aliases")))
+    values.extend(_raw_list(decision.get("aliases")))
+    aliases = set()
+    for alias in values:
+        normalized = _normalized_candidate_value(alias)
+        if normalized and normalized != name:
+            aliases.add(normalized)
+    return sorted(aliases)
 
 
 def _normalized_field_value(field_name: str, value: Any, item_name: str, unknown_text: str) -> str:
