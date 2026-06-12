@@ -168,6 +168,43 @@ def test_entries_keep_evidence_count_segments_and_source_spans():
     ]
 
 
+def test_entries_keep_all_source_spans_and_segments_when_evidence_exceeds_display_limit():
+    candidates = [
+        {
+            "name": "黄龙丹",
+            "segment_id": f"seg-{index:03d}",
+            "start_char": index * 10,
+            "end_char": index * 10 + 3,
+        }
+        for index in range(1, 7)
+    ]
+    evidence = [
+        {
+            "name": "黄龙丹",
+            "segment_id": f"seg-{index:03d}",
+            "summary": f"第{index}处提到黄龙丹。",
+            "source_span": {
+                "start_char": index * 10,
+                "end_char": index * 10 + 3,
+            },
+        }
+        for index in range(1, 7)
+    ]
+
+    [entry] = build_review_entries(candidates, evidence, _curation())
+
+    assert entry["evidence_count"] == 6
+    assert len(entry["source_spans"]) == 6
+    assert entry["segments"] == [
+        "seg-001",
+        "seg-002",
+        "seg-003",
+        "seg-004",
+        "seg-005",
+        "seg-006",
+    ]
+
+
 def test_low_evidence_candidate_needs_review_and_required_examples_do_not_inject_confirmed():
     curation = _curation(auto_confirm=True)
     curation["review"]["required_confirmed_examples"] = ["补天丹"]
@@ -233,3 +270,73 @@ def test_write_review_pack_outputs_jsonl_and_auditable_markdown(tmp_path):
     assert "needs-review" in markdown
     assert "韩立服下黄龙丹。" in markdown
     assert "seg-001:10-13" in markdown
+
+
+def test_write_review_pack_markdown_includes_field_placeholders(tmp_path):
+    entry = {
+        "review_id": "medicine-000001",
+        "name": "黄龙丹",
+        "aliases": [],
+        "status_suggestion": "needs-review",
+        "evidence_count": 1,
+        "candidate_count": 1,
+        "segments": ["seg-001"],
+        "source_spans": [
+            {
+                "segment_id": "seg-001",
+                "start_char": 10,
+                "end_char": 13,
+                "summary": "韩立服下黄龙丹。",
+            }
+        ],
+        "fields": {
+            "丹药名称": "黄龙丹",
+            "稀有度": "原文未说明",
+            "功效": "原文未说明",
+        },
+    }
+
+    write_review_pack([entry], tmp_path / "review-pack.jsonl", tmp_path / "review-pack.md")
+
+    markdown = (tmp_path / "review-pack.md").read_text(encoding="utf-8")
+    assert "### Fields" in markdown
+    assert "- 丹药名称: 黄龙丹" in markdown
+    assert "- 稀有度: 原文未说明" in markdown
+    assert "- 功效: 原文未说明" in markdown
+
+
+def test_write_review_pack_markdown_includes_title_and_omitted_evidence_count(tmp_path):
+    curation = _curation()
+    curation["review"]["max_evidence_per_entry"] = 2
+    candidates = [
+        {
+            "name": "黄龙丹",
+            "segment_id": f"seg-{index:03d}",
+            "start_char": index * 10,
+            "end_char": index * 10 + 3,
+        }
+        for index in range(1, 5)
+    ]
+    evidence = [
+        {
+            "name": "黄龙丹",
+            "segment_id": f"seg-{index:03d}",
+            "title": f"第{index}章",
+            "line": index,
+            "summary": f"第{index}处提到黄龙丹。",
+            "source_span": {
+                "start_char": index * 10,
+                "end_char": index * 10 + 3,
+            },
+        }
+        for index in range(1, 5)
+    ]
+    [entry] = build_review_entries(candidates, evidence, curation)
+
+    write_review_pack([entry], tmp_path / "review-pack.jsonl", tmp_path / "review-pack.md")
+
+    markdown = (tmp_path / "review-pack.md").read_text(encoding="utf-8")
+    assert "title 第1章" in markdown
+    assert "title 第2章" in markdown
+    assert "第3章" not in markdown
+    assert "- omitted_evidence_count: 2" in markdown

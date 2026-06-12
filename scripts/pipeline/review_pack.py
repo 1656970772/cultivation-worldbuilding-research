@@ -128,12 +128,9 @@ def _span_sort_key(span: dict) -> tuple[str, int, int]:
 def _source_spans_for_name(
     name: str,
     evidence_by_name: dict[str, list[dict]],
-    max_evidence: int,
 ) -> list[dict]:
     spans = [_source_span(item) for item in evidence_by_name.get(name, [])]
     spans.sort(key=_span_sort_key)
-    if max_evidence > 0:
-        return spans[:max_evidence]
     return spans
 
 
@@ -162,7 +159,7 @@ def build_review_entries(
     entries: list[dict] = []
     for index, name in enumerate(sorted(grouped_candidates), start=1):
         candidate_group = grouped_candidates[name]
-        source_spans = _source_spans_for_name(name, evidence_by_name, max_evidence)
+        source_spans = _source_spans_for_name(name, evidence_by_name)
         segments = sorted(
             {
                 str(span["segment_id"])
@@ -187,6 +184,10 @@ def build_review_entries(
                 "candidate_count": len(candidate_group),
                 "segments": segments,
                 "source_spans": source_spans,
+                "evidence_display_limit": max_evidence,
+                "omitted_evidence_count": max(0, len(source_spans) - max_evidence)
+                if max_evidence > 0
+                else 0,
                 "fields": _empty_fields(name, curation),
             }
         )
@@ -217,18 +218,36 @@ def write_review_pack(
         )
         if entry.get("aliases"):
             lines.append(f"- aliases: {', '.join(entry['aliases'])}")
+        fields = entry.get("fields", {})
+        if isinstance(fields, dict) and fields:
+            lines.extend(["", "### Fields", ""])
+            for field, value in fields.items():
+                lines.append(f"- {field}: {value}")
         lines.extend(["", "### Evidence", ""])
-        for span in entry.get("source_spans", []):
+        source_spans = list(entry.get("source_spans", []))
+        display_limit = int(entry.get("evidence_display_limit", 0) or 0)
+        displayed_spans = (
+            source_spans[:display_limit]
+            if display_limit > 0
+            else source_spans
+        )
+        for span in displayed_spans:
             segment_id = span.get("segment_id", "")
             start_char = span.get("start_char")
             end_char = span.get("end_char")
+            title = span.get("title", "")
             line = span.get("line", "")
             summary = span.get("summary", "")
             line_text = f"- {segment_id}:{start_char}-{end_char}"
+            if title:
+                line_text += f" title {title}"
             if line != "":
                 line_text += f" line {line}"
             if summary:
                 line_text += f" - {summary}"
             lines.append(line_text)
+        omitted_count = max(0, len(source_spans) - len(displayed_spans))
+        if omitted_count:
+            lines.append(f"- omitted_evidence_count: {omitted_count}")
         lines.append("")
     markdown_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
