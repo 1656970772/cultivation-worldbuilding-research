@@ -600,6 +600,66 @@ def test_cli_merge_reviewed_writes_confirmed_outputs_and_summary(tmp_path):
     assert confirmed["items"][0]["fields"]["功效"] == "辅助修炼"
 
 
+def test_cli_validate_decisions_bad_fixture_writes_report_with_line_context(tmp_path):
+    _write_jsonl(
+        tmp_path / "review-pack.jsonl",
+        [
+            {
+                "review_id": "review-001",
+                "name": "甲",
+                "fields": {"名称": "甲"},
+                "source_spans": [{"segment_id": "seg-001", "line": 1, "summary": "甲"}],
+            },
+            {
+                "review_id": "review-002",
+                "name": "乙",
+                "fields": {"名称": "乙"},
+                "source_spans": [{"segment_id": "seg-002", "line": 2, "summary": "乙"}],
+            },
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "review-decisions.bad.jsonl",
+        [
+            {"review_id": "review-001", "decision": "confirmed", "name": "甲"},
+            {"review_id": "review-002", "decision": "maybe", "name": "乙"},
+        ],
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "fields:",
+                "  required: [名称]",
+                "decision_validation:",
+                "  allowed_decisions: [confirmed, rejected, needs-review]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "validate-decisions",
+        "--workdir",
+        tmp_path,
+        "--decisions",
+        tmp_path / "review-decisions.bad.jsonl",
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 1, result.stderr
+    report_path = tmp_path / "decision-validation-report.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    error = next(
+        item for item in report["blocking_errors"] if item["type"] == "invalid_decision"
+    )
+    assert error["line"] == 2
+    assert error["review_id"] == "review-002"
+
+
 def test_wrapper_make_review_pack_and_merge_reviewed_sets_confirmed(tmp_path):
     source = tmp_path / "source.txt"
     source.write_text("韩立服下黄龙丹。", encoding="utf-8")

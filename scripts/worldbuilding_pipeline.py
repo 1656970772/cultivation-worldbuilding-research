@@ -14,7 +14,11 @@ if str(ROOT) not in sys.path:
 from scripts.pipeline.candidate_extractor import extract_candidates_from_text
 from scripts.pipeline.config_loader import load_yaml
 from scripts.pipeline.decision_draft import draft_decisions
-from scripts.pipeline.decision_validator import resolve_review_workflow
+from scripts.pipeline.decision_validator import (
+    load_decision_records,
+    resolve_review_workflow,
+    validate_decision_records,
+)
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
 from scripts.pipeline.jsonl_io import write_jsonl_objects
@@ -47,6 +51,7 @@ REVIEW_DECISIONS_DRAFT_NAME = "review-decisions.draft.jsonl"
 CONFIRMED_ITEMS_NAME = "confirmed-items.json"
 CURATION_REPORT_NAME = "curation-report.json"
 VALIDATION_REPORT_NAME = "validation-report.json"
+DECISION_VALIDATION_REPORT_NAME = "decision-validation-report.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -409,6 +414,31 @@ def cmd_merge_reviewed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate_decisions(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
+    output = _path(args.output) or (workdir / DECISION_VALIDATION_REPORT_NAME)
+    review_entries = _read_jsonl(review_pack)
+    decision_records = load_decision_records(Path(args.decisions))
+    curation = load_yaml(Path(args.curation))
+    expected = _load_optional_yaml(_path(args.expected))
+    report = validate_decision_records(
+        review_entries,
+        decision_records,
+        curation,
+        expected,
+    )
+    _write_json(output, report)
+    _stdout_json(
+        {
+            "output": str(output),
+            "passed": report["passed"],
+            "counts": report["counts"],
+        }
+    )
+    return 0 if report["passed"] else 1
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     confirmed = _read_json(Path(args.confirmed))
@@ -601,6 +631,18 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--output-confirmed", type=Path)
     merge.add_argument("--output-report", type=Path)
     merge.set_defaults(func=cmd_merge_reviewed)
+
+    validate_decisions = subparsers.add_parser(
+        "validate-decisions",
+        help="Validate review decision JSONL before merge.",
+    )
+    add_workdir(validate_decisions)
+    validate_decisions.add_argument("--review-pack", type=Path)
+    validate_decisions.add_argument("--decisions", required=True, type=Path)
+    validate_decisions.add_argument("--curation", required=True, type=Path)
+    validate_decisions.add_argument("--expected", type=Path)
+    validate_decisions.add_argument("--output", type=Path)
+    validate_decisions.set_defaults(func=cmd_validate_decisions)
 
     render = subparsers.add_parser("render", help="Render a confirmed report.")
     add_workdir(render)
