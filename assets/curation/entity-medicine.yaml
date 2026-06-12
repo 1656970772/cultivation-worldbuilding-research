@@ -11,3 +11,20 @@ review:
 fields:
   required: [丹药名称, 稀有度, 功效, 用途, 丹方, 炼制方式, 来源, 限制/副作用, 适用境界]
   unknown_text: 原文未说明
+review_workflow:
+  entries_per_shard: 60
+  part_dir: review-decisions.parts
+  require_complete_parts: true
+  draft_mode: suggestions
+  checksum_algorithm: sha256
+decision_validation:
+  allowed_decisions: [confirmed, rejected, needs-review]
+  require_all_review_ids: true
+  require_confirmed_source_spans: true
+  required_field_policy: fill_unknown
+  expected_present_blocking: false
+confirmed_audit:
+  forbidden_terms: [丹田, 结丹, 散发, 脸上露]
+  check_alias_conflicts: true
+  check_markdown_row_count: true
+  require_source_spans: true
