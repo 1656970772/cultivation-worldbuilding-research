@@ -1,11 +1,15 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "worldbuilding_pipeline.py"
+RUNNER = ROOT / "scripts" / "run_worldbuilding_pipeline.ps1"
 
 
 def _write_json(path, data, encoding="utf-8"):
@@ -25,6 +29,21 @@ def _write_jsonl(path, items, encoding="utf-8"):
 def _run_cli(*args):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _run_wrapper(*args):
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell is required to exercise the runtime wrapper")
+    command = [powershell, "-NoProfile"]
+    if Path(powershell).name.lower() == "powershell.exe":
+        command += ["-ExecutionPolicy", "Bypass"]
+    return subprocess.run(
+        [*command, "-File", str(RUNNER), *map(str, args)],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -441,6 +460,126 @@ def test_cli_make_review_pack_writes_jsonl_and_markdown_defaults(tmp_path):
     assert "### Fields" in markdown
     assert "- 丹药名称: 黄龙丹" in markdown
     assert "- 功效: 原文未说明" in markdown
+
+
+def test_cli_merge_reviewed_writes_confirmed_outputs_and_summary(tmp_path):
+    _write_jsonl(
+        tmp_path / "review-pack.jsonl",
+        [
+            {
+                "review_id": "medicine-000001",
+                "name": "黄龙丹",
+                "aliases": [],
+                "fields": {
+                    "丹药名称": "黄龙丹",
+                    "稀有度": "原文未说明",
+                    "功效": "原文未说明",
+                },
+                "source_spans": [
+                    {
+                        "segment_id": "seg-000001",
+                        "start_char": 10,
+                        "end_char": 13,
+                        "line": 6,
+                        "summary": "韩立服下黄龙丹。",
+                    }
+                ],
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "review-decisions.jsonl",
+        [
+            {
+                "review_id": "medicine-000001",
+                "decision": "confirmed",
+                "name": "黄龙丹",
+                "fields": {
+                    "丹药名称": "黄龙丹",
+                    "功效": "辅助修炼",
+                },
+                "notes": "证据足够",
+            }
+        ],
+    )
+
+    result = _run_cli(
+        "merge-reviewed",
+        "--workdir",
+        tmp_path,
+        "--review-pack",
+        tmp_path / "review-pack.jsonl",
+        "--decisions",
+        tmp_path / "review-decisions.jsonl",
+        "--curation",
+        ROOT / "assets" / "curation" / "entity-medicine.yaml",
+    )
+
+    assert result.returncode == 0, result.stderr
+    confirmed_path = tmp_path / "confirmed-items.json"
+    report_path = tmp_path / "curation-report.json"
+    assert confirmed_path.exists()
+    assert report_path.exists()
+
+    stdout = json.loads(result.stdout)
+    assert stdout["output_confirmed"] == str(confirmed_path)
+    assert stdout["output_report"] == str(report_path)
+    assert stdout["confirmed"] == 1
+    assert stdout["report"]["counts"]["confirmed"] == 1
+    assert stdout["report"]["counts"]["blocking_errors"] == 0
+
+    confirmed = json.loads(confirmed_path.read_text(encoding="utf-8"))
+    assert confirmed["items"][0]["name"] == "黄龙丹"
+    assert confirmed["items"][0]["fields"]["功效"] == "辅助修炼"
+
+
+def test_wrapper_make_review_pack_and_merge_reviewed_sets_confirmed(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("韩立服下黄龙丹。", encoding="utf-8")
+    template = tmp_path / "丹药分析模板.md"
+    template.write_text("# 丹药分析模板\n", encoding="utf-8")
+    decisions = tmp_path / "review-decisions.jsonl"
+    _write_jsonl(
+        decisions,
+        [
+            {
+                "review_id": "medicine-000001",
+                "decision": "confirmed",
+                "name": "黄龙丹",
+                "fields": {
+                    "丹药名称": "黄龙丹",
+                    "功效": "辅助修炼",
+                },
+            }
+        ],
+    )
+
+    result = _run_wrapper(
+        "-Source",
+        source,
+        "-Template",
+        template,
+        "-Workdir",
+        tmp_path,
+        "-Curation",
+        ROOT / "assets" / "curation" / "entity-medicine.yaml",
+        "-MakeReviewPack",
+        "-Decisions",
+        decisions,
+        "-MergeReviewed",
+        "-SkipRender",
+        "-SkipValidate",
+    )
+
+    assert result.returncode == 0, result.stderr
+    confirmed_path = tmp_path / "confirmed-items.json"
+    assert (tmp_path / "review-pack.jsonl").exists()
+    assert confirmed_path.exists()
+    assert (tmp_path / "curation-report.json").exists()
+    assert confirmed_path.name in result.stdout
+
+    confirmed = json.loads(confirmed_path.read_text(encoding="utf-8"))
+    assert confirmed["items"][0]["name"] == "黄龙丹"
 
 
 def test_cli_render_reads_route_report_by_default(tmp_path):

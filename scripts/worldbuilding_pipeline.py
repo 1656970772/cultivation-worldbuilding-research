@@ -15,6 +15,11 @@ from scripts.pipeline.candidate_extractor import extract_candidates_from_text
 from scripts.pipeline.config_loader import load_yaml
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
+from scripts.pipeline.merge_reviewed import (
+    merge_reviewed_entries,
+    read_decisions_jsonl,
+    write_confirmed_outputs,
+)
 from scripts.pipeline.renderer import render_report
 from scripts.pipeline.review_pack import (
     build_review_entries,
@@ -34,6 +39,8 @@ ROUTE_REPORT_NAME = "route-report.json"
 EVIDENCE_PACK_NAME = "evidence-pack.jsonl"
 REVIEW_PACK_JSONL_NAME = "review-pack.jsonl"
 REVIEW_PACK_MD_NAME = "review-pack.md"
+CONFIRMED_ITEMS_NAME = "confirmed-items.json"
+CURATION_REPORT_NAME = "curation-report.json"
 VALIDATION_REPORT_NAME = "validation-report.json"
 
 
@@ -310,6 +317,35 @@ def cmd_make_review_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_merge_reviewed(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
+    review_entries = _read_jsonl(review_pack)
+    decisions = read_decisions_jsonl(Path(args.decisions))
+    curation = load_curation_pack(Path(args.curation))
+    report_config = {}
+    if curation.get("subject_type"):
+        report_config["subject_type"] = curation["subject_type"]
+    confirmed, report = merge_reviewed_entries(
+        review_entries,
+        decisions,
+        curation,
+        report_config,
+    )
+    output_confirmed = _path(args.output_confirmed) or (workdir / CONFIRMED_ITEMS_NAME)
+    output_report = _path(args.output_report) or (workdir / CURATION_REPORT_NAME)
+    write_confirmed_outputs(confirmed, report, output_confirmed, output_report)
+    _stdout_json(
+        {
+            "output_confirmed": str(output_confirmed),
+            "output_report": str(output_report),
+            "confirmed": len(confirmed.get("items", [])),
+            "report": report,
+        }
+    )
+    return 0
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     confirmed = _read_json(Path(args.confirmed))
@@ -464,6 +500,18 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--output-jsonl", type=Path)
     review.add_argument("--output-md", type=Path)
     review.set_defaults(func=cmd_make_review_pack)
+
+    merge = subparsers.add_parser(
+        "merge-reviewed",
+        help="Merge reviewed decisions into confirmed curation outputs.",
+    )
+    add_workdir(merge)
+    merge.add_argument("--review-pack", type=Path)
+    merge.add_argument("--decisions", required=True, type=Path)
+    merge.add_argument("--curation", required=True, type=Path)
+    merge.add_argument("--output-confirmed", type=Path)
+    merge.add_argument("--output-report", type=Path)
+    merge.set_defaults(func=cmd_merge_reviewed)
 
     render = subparsers.add_parser("render", help="Render a confirmed report.")
     add_workdir(render)

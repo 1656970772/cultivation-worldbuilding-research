@@ -15,7 +15,11 @@ param(
     [string]$Registry = "",
     [string]$ModeRule = "",
     [string]$RulePack = "",
+    [string]$Curation = "",
+    [string]$Decisions = "",
     [int]$ContextChars = 120,
+    [switch]$MakeReviewPack,
+    [switch]$MergeReviewed,
     [switch]$SkipRender,
     [switch]$SkipValidate
 )
@@ -44,6 +48,13 @@ if (-not $RulePack) {
     $RulePack = Join-Path $pluginRoot "assets\rule-packs\entity-medicine.yaml"
 }
 
+if (($MakeReviewPack -or $MergeReviewed) -and [string]::IsNullOrWhiteSpace($Curation)) {
+    throw "Missing -Curation: -MakeReviewPack or -MergeReviewed requires a curation yaml."
+}
+if ($MergeReviewed -and [string]::IsNullOrWhiteSpace($Decisions)) {
+    throw "Missing -Decisions: -MergeReviewed requires a review decisions JSONL."
+}
+
 [System.IO.Directory]::CreateDirectory($Workdir) | Out-Null
 
 function Invoke-PipelineStep {
@@ -52,6 +63,7 @@ function Invoke-PipelineStep {
         [string]$Name,
 
         [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string[]]$Arguments
     )
 
@@ -91,15 +103,18 @@ $segment = Invoke-PipelineStep -Name "segment" -Arguments @(
     "--workdir", $Workdir
 )
 
-$route = Invoke-PipelineStep -Name "route-template" -Arguments @(
+$routeArgs = @(
     "route-template",
     "--config", $Config,
     "--input", $Source,
     "--template", $Template,
     "--registry", $Registry,
-    "--request", $Request,
     "--workdir", $Workdir
 )
+if (-not [string]::IsNullOrWhiteSpace($Request)) {
+    $routeArgs += @("--request", $Request)
+}
+$route = Invoke-PipelineStep -Name "route-template" -Arguments $routeArgs
 
 $candidates = Invoke-PipelineStep -Name "extract-candidates" -Arguments @(
     "extract-candidates",
@@ -119,6 +134,34 @@ $evidence = Invoke-PipelineStep -Name "build-evidence" -Arguments @(
     "--context-chars", "$ContextChars",
     "--workdir", $Workdir
 )
+
+$reviewPack = $null
+if ($MakeReviewPack -or $MergeReviewed) {
+    $reviewPack = Invoke-PipelineStep -Name "make-review-pack" -Arguments @(
+        "make-review-pack",
+        "--workdir", $Workdir,
+        "--curation", $Curation
+    )
+}
+
+$mergeReviewedResult = $null
+if ($MergeReviewed) {
+    $mergeArgs = @(
+        "merge-reviewed",
+        "--workdir", $Workdir,
+        "--curation", $Curation,
+        "--decisions", $Decisions
+    )
+    if ($reviewPack -and $reviewPack.output_jsonl) {
+        $mergeArgs += @("--review-pack", [string]$reviewPack.output_jsonl)
+    }
+    $mergeReviewedResult = Invoke-PipelineStep -Name "merge-reviewed" -Arguments $mergeArgs
+    if ($mergeReviewedResult -and $mergeReviewedResult.output_confirmed) {
+        $Confirmed = [string]$mergeReviewedResult.output_confirmed
+    } else {
+        $Confirmed = Join-Path $Workdir "confirmed-items.json"
+    }
+}
 
 $render = $null
 if ($Confirmed -and -not $SkipRender) {
@@ -159,6 +202,9 @@ if ($Expected -and -not $SkipValidate) {
     route = $route.output
     candidates = $candidates.output
     evidence = $evidence.output
+    review_pack = if ($reviewPack) { $reviewPack.output_jsonl } else { $null }
+    confirmed = if ($Confirmed) { $Confirmed } else { $null }
+    curation_report = if ($mergeReviewedResult) { $mergeReviewedResult.output_report } else { $null }
     report = if ($render) { $render.output } else { $null }
     validation = if ($validation) { $validation.output } else { $null }
 } | ConvertTo-Json -Depth 4
