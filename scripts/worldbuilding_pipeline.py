@@ -13,9 +13,11 @@ if str(ROOT) not in sys.path:
 
 from scripts.pipeline.candidate_extractor import extract_candidates_from_text
 from scripts.pipeline.config_loader import load_yaml
+from scripts.pipeline.decision_draft import draft_decisions
 from scripts.pipeline.decision_validator import resolve_review_workflow
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
+from scripts.pipeline.jsonl_io import write_jsonl_objects
 from scripts.pipeline.merge_reviewed import (
     merge_reviewed_entries,
     read_decisions_jsonl,
@@ -41,6 +43,7 @@ ROUTE_REPORT_NAME = "route-report.json"
 EVIDENCE_PACK_NAME = "evidence-pack.jsonl"
 REVIEW_PACK_JSONL_NAME = "review-pack.jsonl"
 REVIEW_PACK_MD_NAME = "review-pack.md"
+REVIEW_DECISIONS_DRAFT_NAME = "review-decisions.draft.jsonl"
 CONFIRMED_ITEMS_NAME = "confirmed-items.json"
 CURATION_REPORT_NAME = "curation-report.json"
 VALIDATION_REPORT_NAME = "validation-report.json"
@@ -356,6 +359,27 @@ def cmd_split_review_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_draft_decisions(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    curation = load_yaml(Path(args.curation)) if args.curation else {}
+    workflow = resolve_review_workflow(curation)
+    review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
+    mode = args.mode or workflow.draft_mode
+    output = _path(args.output) or (workdir / REVIEW_DECISIONS_DRAFT_NAME)
+    review_entries = _read_jsonl(review_pack)
+    review_workflow = curation.get("review_workflow") or {}
+    if not isinstance(review_workflow, dict):
+        raise ValueError("review_workflow must be a mapping")
+    decisions = draft_decisions(
+        review_entries,
+        mode=mode,
+        allowed_auto_safe=bool(review_workflow.get("allow_auto_safe_draft", False)),
+    )
+    write_jsonl_objects(output, decisions)
+    _stdout_json({"output": str(output), "count": len(decisions), "mode": mode})
+    return 0
+
+
 def cmd_merge_reviewed(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     review_pack = _path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME)
@@ -551,6 +575,20 @@ def build_parser() -> argparse.ArgumentParser:
     split_review.add_argument("--parts-dir", type=Path)
     split_review.add_argument("--manifest", type=Path)
     split_review.set_defaults(func=cmd_split_review_pack)
+
+    draft = subparsers.add_parser(
+        "draft-decisions",
+        help="Draft review decisions from a review pack.",
+    )
+    add_workdir(draft)
+    draft.add_argument("--review-pack", type=Path)
+    draft.add_argument("--curation", type=Path)
+    draft.add_argument(
+        "--mode",
+        choices=["scaffold", "suggestions", "auto-safe"],
+    )
+    draft.add_argument("--output", type=Path)
+    draft.set_defaults(func=cmd_draft_decisions)
 
     merge = subparsers.add_parser(
         "merge-reviewed",

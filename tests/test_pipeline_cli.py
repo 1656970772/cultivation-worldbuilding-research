@@ -59,6 +59,7 @@ def test_cli_lists_phase1_commands():
         "route-template",
         "extract-candidates",
         "build-evidence",
+        "draft-decisions",
         "render",
         "validate",
     ]:
@@ -495,6 +496,37 @@ def test_cli_split_review_pack_writes_manifest_default(tmp_path):
         "shards": 2,
         "total_entries": 3,
     }
+
+
+def test_cli_draft_decisions_writes_default_draft_for_review_pack(tmp_path):
+    review_entries = [
+        {
+            "review_id": "review-001",
+            "name": "甲",
+            "status_suggestion": "rejected",
+            "aliases": [],
+            "fields": {"名称": "甲"},
+        },
+        {
+            "review_id": "review-002",
+            "name": "乙",
+            "status_suggestion": "needs-review",
+            "aliases": [],
+            "fields": {"名称": "乙"},
+        },
+    ]
+    _write_jsonl(tmp_path / "review-pack.jsonl", review_entries)
+
+    result = _run_cli("draft-decisions", "--workdir", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    draft_path = tmp_path / "review-decisions.draft.jsonl"
+    assert draft_path.exists()
+    drafts = [
+        json.loads(line)
+        for line in draft_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(drafts) == len(review_entries)
 
 
 def test_cli_merge_reviewed_writes_confirmed_outputs_and_summary(tmp_path):
