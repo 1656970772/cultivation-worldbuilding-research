@@ -15,6 +15,13 @@ def _write_json(path, data, encoding="utf-8"):
     )
 
 
+def _write_jsonl(path, items, encoding="utf-8"):
+    path.write_text(
+        "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items),
+        encoding=encoding,
+    )
+
+
 def _run_cli(*args):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
@@ -364,6 +371,76 @@ def test_cli_build_evidence_accepts_plan_style_ignored_args(tmp_path):
         for line in (tmp_path / "evidence-pack.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert evidence[0]["name"] == "黄龙丹"
+
+
+def test_cli_make_review_pack_writes_jsonl_and_markdown_defaults(tmp_path):
+    _write_jsonl(
+        tmp_path / "candidates.jsonl",
+        [
+            {
+                "name": "黄龙丹",
+                "status": "needs-review",
+                "segment_id": "seg-000001",
+                "start_char": 10,
+                "end_char": 13,
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "evidence-pack.jsonl",
+        [
+            {
+                "name": "黄龙丹",
+                "segment_id": "seg-000001",
+                "line": 6,
+                "summary": "韩立服下黄龙丹。",
+                "source_span": {"start_char": 10, "end_char": 13},
+            }
+        ],
+    )
+
+    result = _run_cli(
+        "make-review-pack",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        ROOT / "assets" / "curation" / "entity-medicine.yaml",
+    )
+
+    assert result.returncode == 0, result.stderr
+    stdout = json.loads(result.stdout)
+    assert stdout == {
+        "output_jsonl": str(tmp_path / "review-pack.jsonl"),
+        "output_md": str(tmp_path / "review-pack.md"),
+        "entries": 1,
+    }
+
+    [entry] = [
+        json.loads(line)
+        for line in (tmp_path / "review-pack.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert entry["review_id"] == "medicine-000001"
+    assert entry["name"] == "黄龙丹"
+    assert entry["source_spans"] == [
+        {
+            "segment_id": "seg-000001",
+            "start_char": 10,
+            "end_char": 13,
+            "line": 6,
+            "summary": "韩立服下黄龙丹。",
+        }
+    ]
+    assert entry["fields"]["丹药名称"] == "黄龙丹"
+    assert "功效" in entry["fields"]
+
+    markdown = (tmp_path / "review-pack.md").read_text(encoding="utf-8")
+    assert "medicine-000001" in markdown
+    assert "黄龙丹" in markdown
+    assert "seg-000001:10-13" in markdown
+    assert "韩立服下黄龙丹。" in markdown
+    assert "### Fields" in markdown
+    assert "- 丹药名称: 黄龙丹" in markdown
+    assert "- 功效: 原文未说明" in markdown
 
 
 def test_cli_render_reads_route_report_by_default(tmp_path):

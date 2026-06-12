@@ -16,6 +16,11 @@ from scripts.pipeline.config_loader import load_yaml
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
 from scripts.pipeline.renderer import render_report
+from scripts.pipeline.review_pack import (
+    build_review_entries,
+    load_curation_pack,
+    write_review_pack,
+)
 from scripts.pipeline.rule_pack import load_rule_pack
 from scripts.pipeline.segmenter import segment_text, write_jsonl
 from scripts.pipeline.template_router import route_template
@@ -27,6 +32,8 @@ DEFAULT_TEMPLATE_REGISTRY = ROOT / "assets" / "template-registry.yaml"
 INSPECT_REPORT_NAME = "inspect-report.json"
 ROUTE_REPORT_NAME = "route-report.json"
 EVIDENCE_PACK_NAME = "evidence-pack.jsonl"
+REVIEW_PACK_JSONL_NAME = "review-pack.jsonl"
+REVIEW_PACK_MD_NAME = "review-pack.md"
 VALIDATION_REPORT_NAME = "validation-report.json"
 
 
@@ -282,6 +289,27 @@ def cmd_build_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_make_review_pack(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    candidates = _read_jsonl(
+        _path(args.candidates) or (workdir / "candidates.jsonl")
+    )
+    evidence = _read_jsonl(_path(args.evidence) or (workdir / EVIDENCE_PACK_NAME))
+    curation = load_curation_pack(Path(args.curation))
+    entries = build_review_entries(candidates, evidence, curation)
+    output_jsonl = _path(args.output_jsonl) or (workdir / REVIEW_PACK_JSONL_NAME)
+    output_md = _path(args.output_md) or (workdir / REVIEW_PACK_MD_NAME)
+    write_review_pack(entries, output_jsonl, output_md)
+    _stdout_json(
+        {
+            "output_jsonl": str(output_jsonl),
+            "output_md": str(output_md),
+            "entries": len(entries),
+        }
+    )
+    return 0
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     confirmed = _read_json(Path(args.confirmed))
@@ -424,6 +452,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_ignored_path_args(evidence, "--config", "--input", "--template")
     evidence.add_argument("--output", type=Path)
     evidence.set_defaults(func=cmd_build_evidence)
+
+    review = subparsers.add_parser(
+        "make-review-pack",
+        help="Build review entries for curation.",
+    )
+    add_workdir(review)
+    review.add_argument("--candidates", type=Path)
+    review.add_argument("--evidence", type=Path)
+    review.add_argument("--curation", required=True, type=Path)
+    review.add_argument("--output-jsonl", type=Path)
+    review.add_argument("--output-md", type=Path)
+    review.set_defaults(func=cmd_make_review_pack)
 
     render = subparsers.add_parser("render", help="Render a confirmed report.")
     add_workdir(render)
