@@ -1428,3 +1428,151 @@ def test_cli_audit_confirmed_markdown_report_row_count_cross_check(tmp_path):
     )
     assert mismatch["confirmed_items"] == 2
     assert mismatch["markdown_rows"] == 1
+
+
+def _write_finalize_cli_inputs(tmp_path, *, decision_value="confirmed"):
+    _write_jsonl(
+        tmp_path / "review-pack.jsonl",
+        [
+            {
+                "review_id": "review-001",
+                "name": "Alpha",
+                "aliases": [],
+                "fields": {"Name": "Alpha", "Effect": "unknown"},
+                "source_spans": [
+                    {
+                        "segment_id": "seg-001",
+                        "start_char": 0,
+                        "end_char": 5,
+                        "line": 1,
+                        "summary": "Alpha appears.",
+                    }
+                ],
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "review-decisions.jsonl",
+        [
+            {
+                "review_id": "review-001",
+                "decision": decision_value,
+                "name": "Alpha",
+                "fields": {"Name": "Alpha", "Effect": "restores energy"},
+            }
+        ],
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "work_title: Test Work",
+                "subject_type: Entity",
+                "fields:",
+                "  required: [Name, Effect]",
+                "  unknown_text: unknown",
+                "decision_validation:",
+                "  allowed_decisions: [confirmed, rejected, needs-review]",
+                "  require_all_review_ids: true",
+                "  require_confirmed_source_spans: true",
+                "  required_field_policy: fill_unknown",
+                "confirmed_audit:",
+                "  require_source_spans: true",
+                "  check_markdown_row_count: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "default-config.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "output:",
+                "  output_name_pattern: \"{work_title}-{subject_type}.md\"",
+                "  report_title_pattern: \"{work_title} {subject_type}\"",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    expected = tmp_path / "expected.yaml"
+    expected.write_text(
+        "\n".join(
+            [
+                "required_columns: [Name, Effect]",
+                "expected_present: [Alpha]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return curation, config, expected
+
+
+def test_cli_finalize_reviewed_success_uses_default_paths_and_stdout(tmp_path):
+    curation, config, expected = _write_finalize_cli_inputs(tmp_path)
+
+    result = _run_cli(
+        "finalize-reviewed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+        "--config",
+        config,
+        "--expected",
+        expected,
+    )
+
+    assert result.returncode == 0, result.stderr
+    stdout = json.loads(result.stdout)
+    assert stdout == {
+        "passed": True,
+        "run_manifest": str(tmp_path / "run-manifest.json"),
+        "confirmed": str(tmp_path / "confirmed-items.json"),
+        "report": str(tmp_path / "Test Work-Entity.md"),
+        "audit": str(tmp_path / "confirmed-audit-report.json"),
+    }
+    assert (tmp_path / "confirmed-items.json").exists()
+    assert (tmp_path / "curation-report.json").exists()
+    assert (tmp_path / "Test Work-Entity.md").exists()
+    assert (tmp_path / "validation-report.json").exists()
+    assert (tmp_path / "confirmed-audit-report.json").exists()
+    manifest = json.loads((tmp_path / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["passed"] is True
+
+
+def test_cli_finalize_reviewed_invalid_decisions_returns_one_before_merge(tmp_path):
+    curation, config, expected = _write_finalize_cli_inputs(
+        tmp_path,
+        decision_value="maybe",
+    )
+
+    result = _run_cli(
+        "finalize-reviewed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+        "--config",
+        config,
+        "--expected",
+        expected,
+    )
+
+    assert result.returncode == 1, result.stderr
+    stdout = json.loads(result.stdout)
+    assert stdout["passed"] is False
+    assert stdout["run_manifest"] == str(tmp_path / "run-manifest.json")
+    assert stdout["confirmed"] is None
+    assert stdout["report"] is None
+    assert stdout["audit"] is None
+    assert stdout["failed_step"] == "validate-decisions"
+    assert (tmp_path / "decision-validation-report.json").exists()
+    assert not (tmp_path / "confirmed-items.json").exists()
+    assert not (tmp_path / "curation-report.json").exists()
+    manifest = json.loads((tmp_path / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["failed_step"] == "validate-decisions"
+    assert manifest["outputs"]["confirmed"]["exists"] is False
+    assert manifest["outputs"]["audit"]["exists"] is False

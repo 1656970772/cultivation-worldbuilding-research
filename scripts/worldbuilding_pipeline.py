@@ -22,6 +22,7 @@ from scripts.pipeline.decision_validator import (
 )
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
+from scripts.pipeline.finalize_reviewed import finalize_reviewed
 from scripts.pipeline.jsonl_io import write_jsonl_objects
 from scripts.pipeline.merge_reviewed import (
     merge_reviewed_entries,
@@ -59,6 +60,7 @@ VALIDATION_REPORT_NAME = "validation-report.json"
 DECISION_VALIDATION_REPORT_NAME = "decision-validation-report.json"
 DECISION_COLLECTION_REPORT_NAME = "decision-collection-report.json"
 CONFIRMED_AUDIT_REPORT_NAME = "confirmed-audit-report.json"
+RUN_MANIFEST_NAME = "run-manifest.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -611,6 +613,33 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0 if result["passed"] else 1
 
 
+def cmd_finalize_reviewed(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    result = finalize_reviewed(
+        workdir=workdir,
+        review_pack=_path(args.review_pack) or (workdir / REVIEW_PACK_JSONL_NAME),
+        decisions=_path(args.decisions) or (workdir / "review-decisions.jsonl"),
+        curation=Path(args.curation),
+        default_config=Path(args.config),
+        expected=_path(args.expected),
+        template=_path(args.template),
+        route=_path(args.route),
+        output_report=_path(args.output_report),
+        run_manifest=_path(args.run_manifest) or (workdir / RUN_MANIFEST_NAME),
+    )
+    stdout = {
+        "passed": result["passed"],
+        "run_manifest": result["run_manifest"],
+        "confirmed": result["confirmed"],
+        "report": result["report"],
+        "audit": result["audit"],
+    }
+    if not result["passed"] and "failed_step" in result:
+        stdout["failed_step"] = result["failed_step"]
+    _stdout_json(stdout)
+    return 0 if result["passed"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the configurable worldbuilding extraction pipeline.",
@@ -809,6 +838,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate.add_argument("--output", type=Path)
     validate.set_defaults(func=cmd_validate)
+
+    finalize = subparsers.add_parser(
+        "finalize-reviewed",
+        help="Finalize reviewed decisions into confirmed outputs and reports.",
+    )
+    add_workdir(finalize)
+    finalize.add_argument("--review-pack", type=Path)
+    finalize.add_argument("--decisions", type=Path)
+    finalize.add_argument("--curation", required=True, type=Path)
+    finalize.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    finalize.add_argument("--expected", type=Path)
+    finalize.add_argument("--template", type=Path)
+    finalize.add_argument("--route", type=Path)
+    finalize.add_argument("--output-report", type=Path)
+    finalize.add_argument("--run-manifest", type=Path)
+    finalize.set_defaults(func=cmd_finalize_reviewed)
 
     return parser
 
