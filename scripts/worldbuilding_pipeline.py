@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.pipeline.candidate_extractor import extract_candidates_from_text
 from scripts.pipeline.config_loader import load_yaml
+from scripts.pipeline.confirmed_audit import audit_confirmed
 from scripts.pipeline.decision_draft import draft_decisions
 from scripts.pipeline.decision_validator import (
     load_decision_records,
@@ -57,6 +58,7 @@ CURATION_REPORT_NAME = "curation-report.json"
 VALIDATION_REPORT_NAME = "validation-report.json"
 DECISION_VALIDATION_REPORT_NAME = "decision-validation-report.json"
 DECISION_COLLECTION_REPORT_NAME = "decision-collection-report.json"
+CONFIRMED_AUDIT_REPORT_NAME = "confirmed-audit-report.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -175,6 +177,38 @@ def _load_optional_json(path: Path | None) -> dict[str, Any] | None:
     if path is None or not path.exists():
         return None
     return _read_json(path)
+
+
+def _mapping_value(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _non_empty_configured_list(value: Any) -> list[str]:
+    return [item for item in _configured_list(value) if item.strip()]
+
+
+def _derive_confirmed_audit_required_fields(
+    confirmed: dict[str, Any],
+    curation: dict[str, Any] | None,
+) -> list[str]:
+    if curation is not None:
+        fields = _mapping_value(curation.get("fields"))
+        required_fields = _non_empty_configured_list(fields.get("required"))
+        if required_fields:
+            return required_fields
+    report_config = _mapping_value(confirmed.get("report_config"))
+    return _configured_list(report_config.get("required_columns"))
+
+
+def _confirmed_audit_config(curation: dict[str, Any] | None) -> dict[str, Any]:
+    if curation is None:
+        return {}
+    if "confirmed_audit" not in curation:
+        return {}
+    config = curation["confirmed_audit"]
+    if not isinstance(config, dict):
+        raise ValueError("confirmed_audit must be a mapping")
+    return dict(config)
 
 
 def _derive_report_path(
@@ -481,6 +515,41 @@ def cmd_validate_decisions(args: argparse.Namespace) -> int:
     return 0 if report["passed"] else 1
 
 
+def cmd_audit_confirmed(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    confirmed_path = _path(args.confirmed) or (workdir / CONFIRMED_ITEMS_NAME)
+    confirmed = _read_json(confirmed_path)
+    curation = _load_optional_yaml(_path(args.curation))
+    expected = _load_optional_yaml(_path(args.expected))
+    config = _confirmed_audit_config(curation)
+    config["required_fields"] = _derive_confirmed_audit_required_fields(
+        confirmed,
+        curation,
+    )
+
+    markdown_text = None
+    report_path = _path(args.report)
+    if report_path is not None:
+        markdown_text = report_path.read_text(encoding="utf-8-sig")
+
+    result = audit_confirmed(
+        confirmed,
+        expected=expected,
+        markdown_text=markdown_text,
+        config=config,
+    )
+    output = _path(args.output) or (workdir / CONFIRMED_AUDIT_REPORT_NAME)
+    _write_json(output, result)
+    _stdout_json(
+        {
+            "output": str(output),
+            "passed": result["passed"],
+            "counts": result["counts"],
+        }
+    )
+    return 0 if result["passed"] else 1
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     confirmed = _read_json(Path(args.confirmed))
@@ -697,6 +766,18 @@ def build_parser() -> argparse.ArgumentParser:
     validate_decisions.add_argument("--expected", type=Path)
     validate_decisions.add_argument("--output", type=Path)
     validate_decisions.set_defaults(func=cmd_validate_decisions)
+
+    audit = subparsers.add_parser(
+        "audit-confirmed",
+        help="Audit confirmed item quality before publishing.",
+    )
+    add_workdir(audit)
+    audit.add_argument("--confirmed", type=Path)
+    audit.add_argument("--expected", type=Path)
+    audit.add_argument("--curation", type=Path)
+    audit.add_argument("--report", type=Path)
+    audit.add_argument("--output", type=Path)
+    audit.set_defaults(func=cmd_audit_confirmed)
 
     render = subparsers.add_parser("render", help="Render a confirmed report.")
     add_workdir(render)

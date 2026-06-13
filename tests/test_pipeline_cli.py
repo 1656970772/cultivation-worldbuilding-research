@@ -55,6 +55,26 @@ def _write_collect_manifest(parts_dir, shards):
     return manifest_path
 
 
+def _confirmed_item(name, *, fields=None, aliases=None, source_spans=None):
+    return {
+        "status": "confirmed",
+        "name": name,
+        "aliases": aliases or [],
+        "fields": fields or {"Name": name, "Effect": "known"},
+        "source_spans": source_spans
+        if source_spans is not None
+        else [
+            {
+                "segment_id": "seg-001",
+                "start_char": 0,
+                "end_char": len(name),
+                "line": 1,
+                "summary": "evidence",
+            }
+        ],
+    }
+
+
 def _run_cli(*args):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
@@ -1158,3 +1178,253 @@ def test_cli_validate_expected_present_warning_does_not_block(tmp_path):
     assert validation["passed"] is True
     assert validation["blocking_errors"] == []
     assert validation["coverage_warnings"]["expected_present_missing"] == ["金髓丸"]
+
+
+def test_cli_audit_confirmed_writes_default_output_success(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {"items": [_confirmed_item("Alpha")]},
+    )
+
+    result = _run_cli("audit-confirmed", "--workdir", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    report_path = tmp_path / "confirmed-audit-report.json"
+    assert report_path.exists()
+    stdout = json.loads(result.stdout)
+    assert stdout["output"] == str(report_path)
+    assert stdout["passed"] is True
+    assert stdout["counts"]["items"] == 1
+
+
+def test_cli_audit_confirmed_blocking_returns_one_and_writes_report(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "items": [
+                _confirmed_item("Alpha", source_spans=[]),
+                _confirmed_item("Alpha"),
+            ]
+        },
+    )
+
+    result = _run_cli("audit-confirmed", "--workdir", tmp_path)
+
+    assert result.returncode == 1, result.stderr
+    report = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is False
+    assert {error["type"] for error in report["blocking_errors"]} >= {
+        "duplicate_name",
+        "missing_source_spans",
+    }
+
+
+def test_cli_audit_confirmed_curation_required_fields_take_precedence(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "report_config": {"required_columns": ["Name", "Effect"]},
+            "items": [_confirmed_item("Alpha", fields={"Name": "Alpha"})],
+        },
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "fields:",
+                "  required: [Name]",
+                "confirmed_audit:",
+                "  require_source_spans: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "audit-confirmed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is True
+    assert all(
+        error["type"] != "missing_required_field"
+        for error in report["blocking_errors"]
+    )
+
+
+def test_cli_audit_confirmed_uses_confirmed_report_config_required_columns_fallback(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "report_config": {"required_columns": ["Name", "Effect"]},
+            "items": [_confirmed_item("Alpha", fields={"Name": "Alpha"})],
+        },
+    )
+
+    result = _run_cli("audit-confirmed", "--workdir", tmp_path)
+
+    assert result.returncode == 1, result.stderr
+    report = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    missing = next(
+        error
+        for error in report["blocking_errors"]
+        if error["type"] == "missing_required_field"
+    )
+    assert missing["field"] == "Effect"
+
+
+def test_cli_audit_confirmed_curation_without_required_fields_falls_back_to_confirmed_report_config(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "report_config": {"required_columns": ["Name", "Effect"]},
+            "items": [_confirmed_item("Alpha", fields={"Name": "Alpha"})],
+        },
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "confirmed_audit:",
+                "  require_source_spans: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "audit-confirmed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 1, result.stderr
+    report = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    missing = next(
+        error
+        for error in report["blocking_errors"]
+        if error["type"] == "missing_required_field"
+    )
+    assert missing["field"] == "Effect"
+
+
+def test_cli_audit_confirmed_empty_curation_required_fields_fall_back_to_confirmed_report_config(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "report_config": {"required_columns": ["Name", "Effect"]},
+            "items": [_confirmed_item("Alpha", fields={"Name": "Alpha"})],
+        },
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "fields:",
+                "  required: []",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "audit-confirmed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 1, result.stderr
+    report = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    missing = next(
+        error
+        for error in report["blocking_errors"]
+        if error["type"] == "missing_required_field"
+    )
+    assert missing["field"] == "Effect"
+
+
+def test_cli_audit_confirmed_rejects_non_mapping_confirmed_audit_config(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {"items": [_confirmed_item("Alpha")]},
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text("confirmed_audit: []\n", encoding="utf-8")
+
+    result = _run_cli(
+        "audit-confirmed",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode != 0
+    assert "confirmed_audit must be a mapping" in (result.stderr + result.stdout)
+
+
+def test_cli_audit_confirmed_markdown_report_row_count_cross_check(tmp_path):
+    _write_json(
+        tmp_path / "confirmed-items.json",
+        {
+            "report_config": {"required_columns": ["Name", "Effect"]},
+            "items": [
+                _confirmed_item("Alpha"),
+                _confirmed_item("Beta"),
+            ],
+        },
+    )
+    report = tmp_path / "report.md"
+    report.write_text(
+        "\n".join(
+            [
+                "| Name | Effect |",
+                "| --- | --- |",
+                "| Alpha | known |",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "audit-confirmed",
+        "--workdir",
+        tmp_path,
+        "--report",
+        report,
+    )
+
+    assert result.returncode == 1, result.stderr
+    audit = json.loads(
+        (tmp_path / "confirmed-audit-report.json").read_text(encoding="utf-8")
+    )
+    mismatch = next(
+        error
+        for error in audit["blocking_errors"]
+        if error["type"] == "markdown_row_count_mismatch"
+    )
+    assert mismatch["confirmed_items"] == 2
+    assert mismatch["markdown_rows"] == 1
