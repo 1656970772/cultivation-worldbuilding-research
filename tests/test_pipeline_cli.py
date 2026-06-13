@@ -949,6 +949,41 @@ def test_wrapper_make_review_pack_and_merge_reviewed_sets_confirmed(tmp_path):
     assert confirmed["items"][0]["name"] == "黄龙丹"
 
 
+def test_wrapper_contains_review_pipeline_switches():
+    wrapper = RUNNER.read_text(encoding="utf-8")
+
+    for switch in [
+        "$SplitReviewPack",
+        "$DraftDecisions",
+        "$CollectDecisionParts",
+        "$ValidateDecisions",
+        "$FinalizeReviewed",
+        "$AuditConfirmed",
+    ]:
+        assert switch in wrapper
+
+
+def test_wrapper_maps_audit_report_and_output_separately():
+    wrapper = RUNNER.read_text(encoding="utf-8")
+
+    assert '[string]$AuditMarkdownReport = ""' in wrapper
+    assert '[string]$AuditOutput = ""' in wrapper
+    assert (
+        'if ($AuditMarkdownReport -ne "") { $auditArgs += @("--report", $AuditMarkdownReport) }'
+        in wrapper
+    )
+    assert (
+        'if ($AuditOutput -ne "") { $auditArgs += @("--output", $AuditOutput) }'
+        in wrapper
+    )
+
+    audit_start = wrapper.find('if ($AuditConfirmed)')
+    assert audit_start != -1
+    summary_start = wrapper.find("[pscustomobject]@{", audit_start)
+    audit_block = wrapper[audit_start:summary_start]
+    assert '("--output", $OutputReport)' not in audit_block
+
+
 def test_cli_render_reads_route_report_by_default(tmp_path):
     route = {
         "subject_type": "丹药",
