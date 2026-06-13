@@ -26,6 +26,35 @@ def _write_jsonl(path, items, encoding="utf-8"):
     )
 
 
+def _collect_shard(name, expected_output, review_ids):
+    return {
+        "shard": name,
+        "input": f"{name}.jsonl",
+        "expected_output": expected_output,
+        "count": len(review_ids),
+        "first_review_id": review_ids[0],
+        "last_review_id": review_ids[-1],
+        "review_ids": review_ids,
+        "input_sha256": "unused",
+    }
+
+
+def _write_collect_manifest(parts_dir, shards):
+    manifest_path = parts_dir / "review-shard-manifest.json"
+    _write_json(
+        manifest_path,
+        {
+            "schema_version": 1,
+            "review_pack": str(parts_dir.parent / "review-pack.jsonl"),
+            "review_pack_sha256": "unused",
+            "entries_per_shard": 2,
+            "total_entries": sum(len(shard["review_ids"]) for shard in shards),
+            "shards": shards,
+        },
+    )
+    return manifest_path
+
+
 def _run_cli(*args):
     return subprocess.run(
         [sys.executable, str(CLI), *map(str, args)],
@@ -496,6 +525,197 @@ def test_cli_split_review_pack_writes_manifest_default(tmp_path):
         "shards": 2,
         "total_entries": 3,
     }
+
+
+def test_cli_collect_decision_parts_writes_defaults_and_returns_zero(tmp_path):
+    parts_dir = tmp_path / "review-decisions.parts"
+    parts_dir.mkdir()
+    _write_collect_manifest(
+        parts_dir,
+        [
+            _collect_shard(
+                "review-shard-000001",
+                "review-decisions.part-000001.jsonl",
+                ["review-001", "review-002"],
+            )
+        ],
+    )
+    _write_jsonl(
+        parts_dir / "review-decisions.part-000001.jsonl",
+        [
+            {"review_id": "review-001", "decision": "confirmed"},
+            {"review_id": "review-002", "decision": "rejected"},
+        ],
+    )
+
+    result = _run_cli("collect-decision-parts", "--workdir", tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    output_path = tmp_path / "review-decisions.jsonl"
+    report_path = tmp_path / "decision-collection-report.json"
+    assert output_path.exists()
+    assert report_path.exists()
+    stdout = json.loads(result.stdout)
+    assert stdout["output"] == str(output_path)
+    assert stdout["report"] == str(report_path)
+    assert stdout["passed"] is True
+    assert stdout["counts"]["collected_records"] == 2
+
+
+def test_cli_collect_decision_parts_bad_shard_returns_one_with_context(tmp_path):
+    parts_dir = tmp_path / "review-decisions.parts"
+    parts_dir.mkdir()
+    _write_collect_manifest(
+        parts_dir,
+        [
+            _collect_shard(
+                "review-shard-000001",
+                "review-decisions.part-000001.jsonl",
+                ["review-001"],
+            )
+        ],
+    )
+    part_path = parts_dir / "review-decisions.part-000001.jsonl"
+    _write_jsonl(part_path, [{"review_id": "review-999", "decision": "confirmed"}])
+
+    result = _run_cli("collect-decision-parts", "--workdir", tmp_path)
+
+    assert result.returncode == 1, result.stderr
+    assert not (tmp_path / "review-decisions.jsonl").exists()
+    report = json.loads(
+        (tmp_path / "decision-collection-report.json").read_text(encoding="utf-8")
+    )
+    error = next(
+        item
+        for item in report["blocking_errors"]
+        if item["type"] == "review_id_outside_shard"
+    )
+    assert error["shard"] == "review-shard-000001"
+    assert error["path"] == str(part_path)
+    assert error["line"] == 1
+    assert error["review_id"] == "review-999"
+
+
+def test_cli_collect_decision_parts_honors_curation_allowed_decisions(tmp_path):
+    parts_dir = tmp_path / "review-decisions.parts"
+    parts_dir.mkdir()
+    _write_collect_manifest(
+        parts_dir,
+        [
+            _collect_shard(
+                "review-shard-000001",
+                "review-decisions.part-000001.jsonl",
+                ["review-001"],
+            )
+        ],
+    )
+    _write_jsonl(
+        parts_dir / "review-decisions.part-000001.jsonl",
+        [{"review_id": "review-001", "decision": "accepted"}],
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "decision_validation:\n  allowed_decisions: [accepted, rejected]\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "collect-decision-parts",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(
+        (tmp_path / "decision-collection-report.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is True
+    assert report["counts"]["accepted"] == 1
+
+
+def test_cli_collect_decision_parts_uses_curation_part_dir_by_default(tmp_path):
+    parts_dir = tmp_path / "custom-parts"
+    parts_dir.mkdir()
+    manifest_path = _write_collect_manifest(
+        parts_dir,
+        [
+            _collect_shard(
+                "review-shard-000001",
+                "review-decisions.part-000001.jsonl",
+                ["review-001"],
+            )
+        ],
+    )
+    _write_jsonl(
+        parts_dir / "review-decisions.part-000001.jsonl",
+        [{"review_id": "review-001", "decision": "accepted"}],
+    )
+    curation = tmp_path / "curation.yaml"
+    curation.write_text(
+        "\n".join(
+            [
+                "review_workflow:",
+                "  part_dir: custom-parts",
+                "decision_validation:",
+                "  allowed_decisions: [accepted, rejected]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_cli(
+        "collect-decision-parts",
+        "--workdir",
+        tmp_path,
+        "--curation",
+        curation,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(
+        (tmp_path / "decision-collection-report.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is True
+    assert report["manifest"] == str(manifest_path)
+    assert report["counts"]["accepted"] == 1
+
+
+def test_cli_collect_decision_parts_uses_parts_dir_manifest_by_default(tmp_path):
+    parts_dir = tmp_path / "review-output-parts"
+    parts_dir.mkdir()
+    manifest_path = _write_collect_manifest(
+        parts_dir,
+        [
+            _collect_shard(
+                "review-shard-000001",
+                "review-decisions.part-000001.jsonl",
+                ["review-001"],
+            )
+        ],
+    )
+    _write_jsonl(
+        parts_dir / "review-decisions.part-000001.jsonl",
+        [{"review_id": "review-001", "decision": "confirmed"}],
+    )
+
+    result = _run_cli(
+        "collect-decision-parts",
+        "--workdir",
+        tmp_path,
+        "--parts-dir",
+        parts_dir,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(
+        (tmp_path / "decision-collection-report.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is True
+    assert report["manifest"] == str(manifest_path)
+    assert report["counts"]["confirmed"] == 1
 
 
 def test_cli_draft_decisions_writes_default_draft_for_review_pack(tmp_path):

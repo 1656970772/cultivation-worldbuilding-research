@@ -34,6 +34,10 @@ from scripts.pipeline.review_pack import (
     write_review_pack,
 )
 from scripts.pipeline.review_shards import split_review_pack
+from scripts.pipeline.review_shards import (
+    DEFAULT_ALLOWED_DECISIONS,
+    collect_decision_parts,
+)
 from scripts.pipeline.rule_pack import load_rule_pack
 from scripts.pipeline.segmenter import segment_text, write_jsonl
 from scripts.pipeline.template_router import route_template
@@ -52,6 +56,7 @@ CONFIRMED_ITEMS_NAME = "confirmed-items.json"
 CURATION_REPORT_NAME = "curation-report.json"
 VALIDATION_REPORT_NAME = "validation-report.json"
 DECISION_VALIDATION_REPORT_NAME = "decision-validation-report.json"
+DECISION_COLLECTION_REPORT_NAME = "decision-collection-report.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -364,6 +369,43 @@ def cmd_split_review_pack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect_decision_parts(args: argparse.Namespace) -> int:
+    workdir = _workdir(args)
+    allowed_decisions = DEFAULT_ALLOWED_DECISIONS
+    workflow = None
+    if args.curation is not None:
+        workflow = resolve_review_workflow(load_yaml(Path(args.curation)))
+        allowed_decisions = workflow.allowed_decisions
+
+    if args.parts_dir is not None:
+        parts_dir = Path(args.parts_dir)
+    elif workflow is not None:
+        parts_dir = workdir / workflow.part_dir
+    else:
+        parts_dir = workdir / "review-decisions.parts"
+
+    manifest = _path(args.manifest) or (parts_dir / "review-shard-manifest.json")
+    output = _path(args.output) or (workdir / "review-decisions.jsonl")
+    report_path = _path(args.report) or (workdir / DECISION_COLLECTION_REPORT_NAME)
+
+    report = collect_decision_parts(
+        manifest,
+        parts_dir,
+        output,
+        allowed_decisions=allowed_decisions,
+    )
+    _write_json(report_path, report)
+    _stdout_json(
+        {
+            "output": str(output),
+            "report": str(report_path),
+            "passed": report["passed"],
+            "counts": report["counts"],
+        }
+    )
+    return 0 if report["passed"] else 1
+
+
 def cmd_draft_decisions(args: argparse.Namespace) -> int:
     workdir = _workdir(args)
     curation = load_yaml(Path(args.curation)) if args.curation else {}
@@ -605,6 +647,18 @@ def build_parser() -> argparse.ArgumentParser:
     split_review.add_argument("--parts-dir", type=Path)
     split_review.add_argument("--manifest", type=Path)
     split_review.set_defaults(func=cmd_split_review_pack)
+
+    collect_parts = subparsers.add_parser(
+        "collect-decision-parts",
+        help="Collect reviewed decision shard parts into one JSONL file.",
+    )
+    add_workdir(collect_parts)
+    collect_parts.add_argument("--manifest", type=Path)
+    collect_parts.add_argument("--parts-dir", type=Path)
+    collect_parts.add_argument("--output", type=Path)
+    collect_parts.add_argument("--report", type=Path)
+    collect_parts.add_argument("--curation", type=Path)
+    collect_parts.set_defaults(func=cmd_collect_decision_parts)
 
     draft = subparsers.add_parser(
         "draft-decisions",
