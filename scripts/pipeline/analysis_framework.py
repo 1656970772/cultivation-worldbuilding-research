@@ -17,7 +17,7 @@ def load_framework_presets(path: Path) -> dict[str, Any]:
 
 
 def parse_template_readme(readme_path: Path) -> dict[str, Any]:
-    defaults: dict[str, Any] = {"meta_rules": [], "forbidden_output_modes": []}
+    defaults: dict[str, Any] = {"source": "", "meta_rules": [], "forbidden_output_modes": []}
     if not readme_path.exists():
         return defaults
 
@@ -26,7 +26,8 @@ def parse_template_readme(readme_path: Path) -> dict[str, Any]:
     forbidden = _collect_list_items(text, ("禁止", "Forbidden", "不得"))
     if not forbidden:
         forbidden = _detect_forbidden_output_modes(text)
-    return {"meta_rules": meta_rules, "forbidden_output_modes": forbidden}
+    meta_rules = _dedupe(meta_rules + _readme_rule_tags(text))
+    return {"source": str(readme_path), "meta_rules": meta_rules, "forbidden_output_modes": forbidden}
 
 
 def build_framework(template_path: Path, presets_path: Path, output_dir: Path) -> dict[str, Path]:
@@ -34,7 +35,10 @@ def build_framework(template_path: Path, presets_path: Path, output_dir: Path) -
     template_dir = Path(str(presets.get("template_catalog", {}).get("template_dir", "")))
     if not template_dir.is_absolute():
         template_dir = presets_path.parent / template_dir
-    readme_rules = parse_template_readme(template_dir / "README.md")
+    readme_path = template_dir / "README.md"
+    if not readme_path.exists():
+        readme_path = template_path.parent / "README.md"
+    readme_rules = parse_template_readme(readme_path)
     profile = build_template_profile(template_path, presets_path=presets_path)
     profile_data = asdict(profile)
     threshold = float(presets.get("validation_rules", {}).get("low_confidence_threshold", 0.6))
@@ -55,6 +59,7 @@ def build_framework(template_path: Path, presets_path: Path, output_dir: Path) -
         "render_blocks": _selected_render_blocks(presets, shape_config),
         "required_fields": _required_fields(profile_data, shape_config),
         "name_field": profile.name_field or shape_config.get("name_field", ""),
+        "meta_rules_source": readme_rules["source"],
         "meta_rules": readme_rules["meta_rules"],
     }
     rule_pack = {
@@ -210,6 +215,10 @@ def _collect_list_items(text: str, heading_terms: tuple[str, ...]) -> list[str]:
         item = re.match(r"^\s*[-*+]\s+(.+?)\s*$", line)
         if item:
             items.append(item.group(1).strip())
+            continue
+        stripped = line.strip()
+        if stripped and not stripped.startswith("|") and not stripped.startswith("```"):
+            items.append(stripped)
     return items
 
 
@@ -219,6 +228,15 @@ def _detect_forbidden_output_modes(text: str) -> list[str]:
         if re.search(rf"(不要|禁止|不应|不得)[^。\n]*{re.escape(mode)}", text):
             modes.append(mode)
     return modes
+
+
+def _readme_rule_tags(text: str) -> list[str]:
+    tags: list[str] = []
+    if "没有来源" in text or "无来源" in text:
+        tags.append("forbid_unsourced_impressions")
+    if "指纹" in text or "golden" in text.lower():
+        tags.append("forbid_fingerprint_golden_claims")
+    return tags
 
 
 def _dedupe(values: list[Any]) -> list[Any]:

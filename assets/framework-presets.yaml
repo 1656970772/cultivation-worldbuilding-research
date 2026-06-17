@@ -1,13 +1,15 @@
 parser:
   recommended_structure_headings: [推荐结构, 输出结构, 建议结构]
-  card_section_headings: [卡片, 设定卡]
+  card_section_headings: [卡片, 设定卡, 案例]
 
 template_catalog:
   template_dir: templates
   expected_files:
     README.md: meta_rules
     世界观总览模板.md: overview_plus_cards
+    世界观设定模板.md: overview_plus_cards
     势力组织模板.md: overview_plus_cards
+    势力设定模板.md: overview_plus_cards
     地理区域模板.md: overview_plus_cards
     人物角色模板.md: overview_plus_cards
     丹药分析模板.md: entity_table

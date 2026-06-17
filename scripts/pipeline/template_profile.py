@@ -70,6 +70,7 @@ def load_shape_rules(presets_path: Path | None = None) -> dict[str, Any]:
     data = load_yaml(path)
     return {
         "parser": data.get("parser", {}),
+        "template_catalog": data.get("template_catalog", {}),
         "template_shape_rules": data.get("template_shape_rules", {}),
         "shape_detection_keywords": data.get("shape_detection_keywords", {}),
         "validation_rules": data.get("validation_rules", {}),
@@ -82,7 +83,11 @@ def build_template_profile(template_path: Path | str, presets_path: Path | None 
     text = path.read_text(encoding="utf-8")
     rules = load_shape_rules(presets_path)
     snapshot = _parse_markdown(text, rules)
-    report_shape, confidence = _classify_shape(snapshot, rules)
+    configured_shape = _configured_report_shape(path, rules)
+    if configured_shape:
+        report_shape, confidence = configured_shape, 1.0
+    else:
+        report_shape, confidence = _classify_shape(snapshot, rules)
 
     tables = snapshot.recommended_tables or snapshot.tables
     field_tables = _field_source_tables(report_shape, tables)
@@ -283,6 +288,21 @@ def _classify_shape(snapshot: MarkdownSnapshot, rules: dict[str, Any]) -> tuple[
     return best_shape, confidence
 
 
+def _configured_report_shape(path: Path, rules: dict[str, Any]) -> str:
+    expected_files = rules.get("template_catalog", {}).get("expected_files", {})
+    if not isinstance(expected_files, dict):
+        return ""
+    template_dir = Path(str(rules.get("template_catalog", {}).get("template_dir", "")))
+    if template_dir and not template_dir.is_absolute():
+        template_dir = Path(__file__).resolve().parents[2] / template_dir
+    in_configured_dir = template_dir.exists() and path.resolve().is_relative_to(template_dir.resolve())
+    in_readme_catalog = (path.parent / "README.md").exists()
+    if not in_configured_dir and not in_readme_catalog:
+        return ""
+    shape = expected_files.get(path.name, "")
+    return str(shape) if shape and shape != "meta_rules" else ""
+
+
 def _detect_features(snapshot: MarkdownSnapshot, keyword_config: dict[str, Any]) -> dict[str, bool]:
     tables = snapshot.tables + snapshot.recommended_tables
     text = "\n".join([snapshot.body_text, snapshot.recommended_text])
@@ -411,9 +431,13 @@ def _is_module_table(table: TemplateTable) -> bool:
 
 def _detect_forbidden_output_modes(text: str) -> list[str]:
     modes = []
+    aliases = {"表格": "table", "卡片": "cards"}
     for mode in ("表格", "卡片", "自由发挥"):
         if re.search(rf"(不要|禁止|不应)[^。\n]*{re.escape(mode)}", text):
             modes.append(mode)
+            alias = aliases.get(mode)
+            if alias:
+                modes.append(alias)
     return modes
 
 
