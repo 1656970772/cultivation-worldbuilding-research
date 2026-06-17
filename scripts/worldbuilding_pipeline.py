@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import sys
 from pathlib import Path
@@ -22,6 +23,7 @@ from scripts.pipeline.decision_validator import (
 )
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
+from scripts.pipeline.analysis_framework import generate_framework
 from scripts.pipeline.finalize_reviewed import finalize_reviewed
 from scripts.pipeline.jsonl_io import write_jsonl_objects
 from scripts.pipeline.merge_reviewed import (
@@ -42,12 +44,14 @@ from scripts.pipeline.review_shards import (
 )
 from scripts.pipeline.rule_pack import load_rule_pack
 from scripts.pipeline.segmenter import segment_text, write_jsonl
+from scripts.pipeline.template_profile import build_template_profile
 from scripts.pipeline.template_router import route_template
 from scripts.pipeline.validator import validate_expected_present, validate_report
 
 
 DEFAULT_CONFIG = ROOT / "assets" / "default-config.yaml"
 DEFAULT_TEMPLATE_REGISTRY = ROOT / "assets" / "template-registry.yaml"
+DEFAULT_FRAMEWORK_PRESETS = ROOT / "assets" / "framework-presets.yaml"
 INSPECT_REPORT_NAME = "inspect-report.json"
 ROUTE_REPORT_NAME = "route-report.json"
 EVIDENCE_PACK_NAME = "evidence-pack.jsonl"
@@ -309,6 +313,49 @@ def cmd_route_template(args: argparse.Namespace) -> int:
     output = _path(args.output) or (_workdir(args) / ROUTE_REPORT_NAME)
     _write_json(output, route)
     _stdout_json({"output": str(output), "template_name": route["template_name"]})
+    return 0
+
+
+def cmd_profile_template(args: argparse.Namespace) -> int:
+    profile = build_template_profile(Path(args.template))
+    _stdout_json(asdict(profile))
+    return 0
+
+
+def cmd_suggest_analysis_points(args: argparse.Namespace) -> int:
+    profile = build_template_profile(Path(args.template))
+    profile_data = asdict(profile)
+    result = {
+        "template": str(Path(args.template).resolve()),
+        "report_shape": profile.report_shape,
+        "subject_type": args.subject_type,
+        "request": args.request,
+        "questions": list(profile.questions),
+        "fields": profile_data.get("fields", []),
+    }
+    output = _path(args.output)
+    if output is not None:
+        _write_json(output, result)
+        result = {"output": str(output.resolve()), **result}
+    _stdout_json(result)
+    return 0
+
+
+def cmd_prepare_framework(args: argparse.Namespace) -> int:
+    outputs = generate_framework(
+        template_path=Path(args.template),
+        framework_dir=Path(args.framework_dir),
+        presets_path=DEFAULT_FRAMEWORK_PRESETS,
+        work_title=args.work_title,
+        user_request=args.request,
+    )
+    result = {
+        key: str(Path(value).resolve())
+        for key, value in outputs.items()
+    }
+    if args.subject_type:
+        result["subject_type"] = args.subject_type
+    _stdout_json(result)
     return 0
 
 
@@ -697,6 +744,34 @@ def build_parser() -> argparse.ArgumentParser:
     add_ignored_path_args(route, "--config", "--input")
     route.add_argument("--output", type=Path)
     route.set_defaults(func=cmd_route_template)
+
+    profile_template = subparsers.add_parser(
+        "profile-template",
+        help="Profile a Markdown template into a reusable report shape.",
+    )
+    profile_template.add_argument("--template", required=True, type=Path)
+    profile_template.set_defaults(func=cmd_profile_template)
+
+    suggest_analysis = subparsers.add_parser(
+        "suggest-analysis-points",
+        help="Suggest analysis questions from a template profile.",
+    )
+    suggest_analysis.add_argument("--template", required=True, type=Path)
+    suggest_analysis.add_argument("--request", default="")
+    suggest_analysis.add_argument("--subject-type", default="")
+    suggest_analysis.add_argument("--output", type=Path)
+    suggest_analysis.set_defaults(func=cmd_suggest_analysis_points)
+
+    prepare_framework = subparsers.add_parser(
+        "prepare-framework",
+        help="Generate run-local route, rule-pack, curation, and summary files.",
+    )
+    prepare_framework.add_argument("--template", required=True, type=Path)
+    prepare_framework.add_argument("--framework-dir", required=True, type=Path)
+    prepare_framework.add_argument("--work-title", required=True)
+    prepare_framework.add_argument("--request", default="")
+    prepare_framework.add_argument("--subject-type", default="")
+    prepare_framework.set_defaults(func=cmd_prepare_framework)
 
     extract = subparsers.add_parser(
         "extract-candidates",

@@ -27,7 +27,13 @@ param(
     [string]$AuditOutput = "",
     [string]$DraftMode = "",
     [string]$RunManifest = "",
+    [string]$FrameworkDir = "",
+    [string]$SubjectType = "",
+    [string]$AnalysisPoints = "",
+    [string]$FrameworkSummary = "",
     [int]$ContextChars = 120,
+    [switch]$PrepareFramework,
+    [switch]$SuggestAnalysisPoints,
     [switch]$MakeReviewPack,
     [switch]$MergeReviewed,
     [switch]$SplitReviewPack,
@@ -63,8 +69,17 @@ if (-not $ModeRule) {
 if (-not $RulePack) {
     $RulePack = Join-Path $pluginRoot "assets\rule-packs\entity-medicine.yaml"
 }
+if (-not $FrameworkDir) {
+    $FrameworkDir = Join-Path $Workdir "framework"
+}
+if (-not $AnalysisPoints) {
+    $AnalysisPoints = Join-Path $FrameworkDir "analysis-points.json"
+}
+if (-not $FrameworkSummary) {
+    $FrameworkSummary = Join-Path $FrameworkDir "framework-summary.json"
+}
 
-if (($MakeReviewPack -or $MergeReviewed) -and [string]::IsNullOrWhiteSpace($Curation)) {
+if (($MakeReviewPack -or $MergeReviewed) -and [string]::IsNullOrWhiteSpace($Curation) -and -not $PrepareFramework) {
     throw "Missing -Curation: -MakeReviewPack or -MergeReviewed requires a curation yaml."
 }
 if ($MergeReviewed -and [string]::IsNullOrWhiteSpace($Decisions)) {
@@ -115,6 +130,42 @@ $legacyReviewPackResult = $null
 $mergeReviewedResult = $null
 $render = $null
 $validation = $null
+$suggestAnalysisPointsResult = $null
+$prepareFrameworkResult = $null
+
+if ($SuggestAnalysisPoints) {
+    $suggestArgs = @(
+        "suggest-analysis-points",
+        "--template", $Template,
+        "--request", $Request,
+        "--subject-type", $SubjectType,
+        "--output", $AnalysisPoints
+    )
+    $suggestAnalysisPointsResult = Invoke-PipelineStep -Name "suggest-analysis-points" -Arguments $suggestArgs
+}
+
+if ($PrepareFramework) {
+    $workTitle = [System.IO.Path]::GetFileNameWithoutExtension($Source)
+    if ([string]::IsNullOrWhiteSpace($workTitle)) {
+        $workTitle = "Untitled Work"
+    }
+    $prepareArgs = @(
+        "prepare-framework",
+        "--template", $Template,
+        "--framework-dir", $FrameworkDir,
+        "--work-title", $workTitle,
+        "--request", $Request,
+        "--subject-type", $SubjectType
+    )
+    $prepareFrameworkResult = Invoke-PipelineStep -Name "prepare-framework" -Arguments $prepareArgs
+
+    $generatedRoute = Join-Path $FrameworkDir "route.json"
+    $generatedRulePack = Join-Path $FrameworkDir "rule-pack.yaml"
+    $generatedCuration = Join-Path $FrameworkDir "curation.yaml"
+    if (Test-Path -LiteralPath $generatedRoute) { $Route = $generatedRoute }
+    if (Test-Path -LiteralPath $generatedRulePack) { $RulePack = $generatedRulePack }
+    if (Test-Path -LiteralPath $generatedCuration) { $Curation = $generatedCuration }
+}
 
 if ($legacyPipelineRequested) {
     $inspect = Invoke-PipelineStep -Name "inspect" -Arguments @(
@@ -133,18 +184,26 @@ if ($legacyPipelineRequested) {
         "--workdir", $Workdir
     )
 
-    $routeArgs = @(
-        "route-template",
-        "--config", $Config,
-        "--input", $Source,
-        "--template", $Template,
-        "--registry", $Registry,
-        "--workdir", $Workdir
-    )
-    if (-not [string]::IsNullOrWhiteSpace($Request)) {
-        $routeArgs += @("--request", $Request)
+    if ($Route -ne "" -and (Test-Path -LiteralPath $Route)) {
+        Write-Host "== route-template skipped: using local route =="
+        $routeResult = Get-Content -LiteralPath $Route -Raw | ConvertFrom-Json
+        if ($routeResult -and -not ($routeResult.PSObject.Properties.Name -contains "output")) {
+            $routeResult | Add-Member -NotePropertyName "output" -NotePropertyValue $Route
+        }
+    } else {
+        $routeArgs = @(
+            "route-template",
+            "--config", $Config,
+            "--input", $Source,
+            "--template", $Template,
+            "--registry", $Registry,
+            "--workdir", $Workdir
+        )
+        if (-not [string]::IsNullOrWhiteSpace($Request)) {
+            $routeArgs += @("--request", $Request)
+        }
+        $routeResult = Invoke-PipelineStep -Name "route-template" -Arguments $routeArgs
     }
-    $routeResult = Invoke-PipelineStep -Name "route-template" -Arguments $routeArgs
 
     $candidates = Invoke-PipelineStep -Name "extract-candidates" -Arguments @(
         "extract-candidates",
@@ -201,6 +260,7 @@ if ($legacyPipelineRequested) {
             "--workdir", $Workdir
         )
         if ($OutputReport -ne "") { $renderArgs += @("--output", $OutputReport) }
+        if ($Route -ne "") { $renderArgs += @("--route", $Route) }
         $render = Invoke-PipelineStep -Name "render" -Arguments $renderArgs
     } elseif (-not $Confirmed) {
         Write-Host "== render skipped: no -Confirmed file provided =="
@@ -218,6 +278,9 @@ if ($legacyPipelineRequested) {
         }
         if ($render -and $render.output) {
             $validateArgs += @("--report", $render.output)
+        }
+        if ($Route -ne "") {
+            $validateArgs += @("--route", $Route)
         }
         $validation = Invoke-PipelineStep -Name "validate" -Arguments $validateArgs
     } elseif (-not $Expected) {
@@ -304,6 +367,8 @@ if ($AuditConfirmed) {
     curation_report = if ($mergeReviewedResult) { $mergeReviewedResult.output_report } else { $null }
     report = if ($render) { $render.output } else { $null }
     validation = if ($validation) { $validation.output } else { $null }
+    suggest_analysis_points = $suggestAnalysisPointsResult
+    prepare_framework = $prepareFrameworkResult
     split_review_pack = $splitReviewResult
     draft_decisions = $draftDecisionResult
     collect_decision_parts = $collectDecisionPartsResult
