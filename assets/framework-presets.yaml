@@ -1,6 +1,95 @@
 parser:
   recommended_structure_headings: [推荐结构, 输出结构, 建议结构]
   card_section_headings: [卡片, 设定卡]
+
+template_catalog:
+  template_dir: templates
+  expected_files:
+    README.md: meta_rules
+    世界观总览模板.md: overview_plus_cards
+    势力组织模板.md: overview_plus_cards
+    地理区域模板.md: overview_plus_cards
+    人物角色模板.md: overview_plus_cards
+    丹药分析模板.md: entity_table
+    灵材资源模板.md: entity_table
+    法宝器物模板.md: entity_table
+    武器分析模板.md: entity_table
+    功法术法神通模板.md: cards_only
+    修炼体系模板.md: relationship_chain
+    境界阶段模板.md: process_chain
+    事件案例集模板.md: case_collection
+    事件因果链（长程因果图）模板.md: process_chain
+    角色AI行为参考模板.md: decision_chain
+    关系网络模板.md: relationship_chain
+    职业技艺闭环模板.md: profession_workflow
+    经济交易模板.md: case_collection
+
+template_shapes:
+  entity_table:
+    render_strategy: entity_table
+    render_blocks: [entity_table, evidence_notes]
+    required_fields: [名称, 类型, 证据]
+    name_field: 名称
+    candidate_strategies: [named_entity, table_row]
+    fields: [名称, 类型, 用途, 来源, 证据]
+    review_workflow: table_entity_review
+  overview_plus_cards:
+    render_strategy: overview_plus_cards
+    render_blocks: [overview_table, detail_cards, evidence_notes]
+    required_fields: [名称, 类型, 证据]
+    name_field: 名称
+    candidate_strategies: [named_entity, card_subject, table_row]
+    fields: [名称, 类型, 概览, 证据]
+    review_workflow: overview_card_review
+  cards_only:
+    render_strategy: cards_only
+    render_blocks: [detail_cards, evidence_notes]
+    required_fields: [名称, 来源, 证据]
+    name_field: 名称
+    candidate_strategies: [card_subject, named_entity]
+    fields: [名称, 类别, 特征, 来源, 证据]
+    review_workflow: card_review
+  case_collection:
+    render_strategy: case_collection
+    render_blocks: [case_cards, timeline_notes, evidence_notes]
+    required_fields: [事件, 触发, 结果, 证据]
+    name_field: 事件
+    candidate_strategies: [event_case, narrative_span]
+    fields: [事件, 触发, 过程, 结果, 影响, 证据]
+    review_workflow: case_review
+  process_chain:
+    render_strategy: process_chain
+    render_blocks: [process_steps, chain_edges, evidence_notes]
+    required_fields: [阶段, 因果, 证据]
+    name_field: 阶段
+    candidate_strategies: [process_step, chain_edge, narrative_span]
+    fields: [阶段, 前因, 行动/变化, 后果, 证据]
+    review_workflow: chain_review
+  decision_chain:
+    render_strategy: decision_chain
+    render_blocks: [decision_nodes, option_consequences, evidence_notes]
+    required_fields: [节点, 条件, 后果, 证据]
+    name_field: 节点
+    candidate_strategies: [decision_node, condition_consequence]
+    fields: [节点, 条件, 选项, 代价, 后果, 约束, 证据]
+    review_workflow: decision_review
+  relationship_chain:
+    render_strategy: relationship_chain
+    render_blocks: [relationship_nodes, relationship_edges, evidence_notes]
+    required_fields: [节点, 关系, 证据]
+    name_field: 节点
+    candidate_strategies: [relationship_edge, named_entity]
+    fields: [节点, 对象, 关系, 影响, 上游/下游, 证据]
+    review_workflow: relationship_review
+  profession_workflow:
+    render_strategy: profession_workflow
+    render_blocks: [workflow_loop, inputs_outputs, evidence_notes]
+    required_fields: [职业/技艺, 投入, 产出, 证据]
+    name_field: 职业/技艺
+    candidate_strategies: [workflow_step, input_output_pair]
+    fields: [职业/技艺, 投入, 工具, 产出, 成长路径, 失败风险, 证据]
+    review_workflow: workflow_review
+
 template_shape_rules:
   entity_table:
     prefer_when: [recommended_table_has_subject_name_field]
@@ -26,6 +115,7 @@ template_shape_rules:
   profession_workflow:
     prefer_when: [profession_inputs_outputs_growth_loop]
     requires_any: [input_output_sections, workflow_loop, growth_path]
+
 shape_detection_keywords:
   entity_table:
     heading: [推荐结构, 字段说明]
@@ -34,7 +124,7 @@ shape_detection_keywords:
     heading: [总览, 卡片, 设定卡]
     columns: [名称, 类型, 参考用途, 证据]
   cards_only:
-    heading: [卡片, 设定卡]
+    heading: [卡片, 设定卡, 功法, 术法, 神通]
     bullets: [来源, 类型, 特征, 证据]
   case_collection:
     heading: [案例, 样例, 代表事件, 事件卡片, 日志]
@@ -51,5 +141,119 @@ shape_detection_keywords:
   profession_workflow:
     heading: [职业, 闭环, 投入, 产出, 成长路径]
     bullets: [投入, 产出, 工具, 成长, 失败]
+
+subject_aliases:
+  entity:
+    - 名称
+    - 对象
+    - 条目
+  event:
+    - 事件
+    - 案例
+    - 情节
+  process:
+    - 阶段
+    - 步骤
+    - 环节
+  decision:
+    - 节点
+    - 选项
+    - 条件
+  relationship:
+    - 节点
+    - 对象
+    - 关系
+  profession:
+    - 职业
+    - 技艺
+    - 闭环
+
+candidate_strategies:
+  named_entity:
+    source_patterns: [名称, 类型, 类别]
+    evidence_policy: require_source_span
+  table_row:
+    source_patterns: [Markdown 表格行]
+    evidence_policy: require_row_source
+  card_subject:
+    source_patterns: [设定卡, 卡片]
+    evidence_policy: require_source_span
+  event_case:
+    source_patterns: [案例, 事件, 日志]
+    evidence_policy: require_source_span
+  narrative_span:
+    source_patterns: [章节片段, 连续叙述]
+    evidence_policy: require_source_span
+  process_step:
+    source_patterns: [阶段, 步骤, 因果链, "->", "→"]
+    evidence_policy: require_source_span
+  chain_edge:
+    source_patterns: [前因, 后果, 上一步, 下一步]
+    evidence_policy: require_source_span
+  decision_node:
+    source_patterns: [决策节点, 选择, 倾向]
+    evidence_policy: require_source_span
+  condition_consequence:
+    source_patterns: [条件, 代价, 后果, 约束]
+    evidence_policy: require_source_span
+  relationship_edge:
+    source_patterns: [关系, 上游, 下游, 影响]
+    evidence_policy: require_source_span
+  workflow_step:
+    source_patterns: [投入, 产出, 闭环, 成长路径]
+    evidence_policy: require_source_span
+  input_output_pair:
+    source_patterns: [输入, 输出, 工具, 成本]
+    evidence_policy: require_source_span
+
+render_blocks:
+  entity_table:
+    - title: 实体表
+      kind: table
+  overview_table:
+    - title: 总览表
+      kind: table
+  detail_cards:
+    - title: 设定卡
+      kind: card
+  case_cards:
+    - title: 案例卡
+      kind: card
+  timeline_notes:
+    - title: 时间线备注
+      kind: list
+  process_steps:
+    - title: 因果步骤
+      kind: ordered_list
+  chain_edges:
+    - title: 链路边
+      kind: edge_list
+  decision_nodes:
+    - title: 决策节点
+      kind: card
+  option_consequences:
+    - title: 选项后果
+      kind: table
+  relationship_nodes:
+    - title: 关系节点
+      kind: list
+  relationship_edges:
+    - title: 关系边
+      kind: edge_list
+  workflow_loop:
+    - title: 工作闭环
+      kind: ordered_list
+  inputs_outputs:
+    - title: 投入产出
+      kind: table
+  evidence_notes:
+    - title: 证据说明
+      kind: list
+
 validation_rules:
   low_confidence_threshold: 0.6
+  require_source_spans: true
+  forbid_invented_fields: true
+  meta_rules:
+    - 所有结论必须能回溯到原文证据。
+    - 不得为了凑齐字段编造原文未说明的信息。
