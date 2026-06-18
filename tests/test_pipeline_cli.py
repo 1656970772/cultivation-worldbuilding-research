@@ -234,6 +234,7 @@ def test_cli_route_template_accepts_plan_style_aliases_and_ignored_args(tmp_path
     assert result.returncode == 0, result.stderr
     route = json.loads((tmp_path / "route-report.json").read_text(encoding="utf-8"))
     assert route["subject_type"] == "丹药"
+    assert route["output_name_pattern"] == "{work_title}丹药分析.md"
 
 
 def test_cli_extract_candidates_writes_segment_and_global_offsets(tmp_path):

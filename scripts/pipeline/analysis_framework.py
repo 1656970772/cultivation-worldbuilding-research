@@ -21,7 +21,7 @@ def parse_template_readme(readme_path: Path) -> dict[str, Any]:
     if not readme_path.exists():
         return defaults
 
-    text = readme_path.read_text(encoding="utf-8")
+    text = readme_path.read_text(encoding="utf-8-sig")
     meta_rules = _collect_list_items(text, ("规则", "元规则", "Meta Rules"))
     forbidden = _collect_list_items(text, ("禁止", "Forbidden", "不得"))
     if not forbidden:

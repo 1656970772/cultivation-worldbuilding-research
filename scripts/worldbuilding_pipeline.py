@@ -24,6 +24,7 @@ from scripts.pipeline.decision_validator import (
 from scripts.pipeline.encoding import read_text_with_encoding
 from scripts.pipeline.evidence_builder import build_evidence_pack
 from scripts.pipeline.analysis_framework import generate_framework
+from scripts.pipeline.batch_plan import build_batch_plan, write_batch_plan
 from scripts.pipeline.finalize_reviewed import finalize_reviewed
 from scripts.pipeline.jsonl_io import write_jsonl_objects
 from scripts.pipeline.merge_reviewed import (
@@ -65,6 +66,7 @@ DECISION_VALIDATION_REPORT_NAME = "decision-validation-report.json"
 DECISION_COLLECTION_REPORT_NAME = "decision-collection-report.json"
 CONFIRMED_AUDIT_REPORT_NAME = "confirmed-audit-report.json"
 RUN_MANIFEST_NAME = "run-manifest.json"
+BATCH_PLAN_NAME = "batch-plan.json"
 
 
 def _path(value: str | Path | None) -> Path | None:
@@ -356,6 +358,22 @@ def cmd_prepare_framework(args: argparse.Namespace) -> int:
     if args.subject_type:
         result["subject_type"] = args.subject_type
     _stdout_json(result)
+    return 0
+
+
+def cmd_batch_plan(args: argparse.Namespace) -> int:
+    output = _path(args.output) or (Path(args.source_dir) / BATCH_PLAN_NAME)
+    plan = build_batch_plan(
+        template_dir=Path(args.template_dir),
+        source_dir=Path(args.source_dir),
+        source_file=Path(args.source_file),
+        mode=args.mode,
+        output_path=output,
+        framework_root=_path(args.framework_root),
+        prompt_contract_path=_path(args.prompt_contract),
+    )
+    write_batch_plan(output, plan)
+    _stdout_json({"output": str(output), "items": len(plan["items"]), "mode": plan["mode"]})
     return 0
 
 
@@ -772,6 +790,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_framework.add_argument("--request", default="")
     prepare_framework.add_argument("--subject-type", default="")
     prepare_framework.set_defaults(func=cmd_prepare_framework)
+
+    batch_plan = subparsers.add_parser(
+        "batch-plan",
+        help="Generate a batch-plan.json for template-per-subagent document generation.",
+    )
+    batch_plan.add_argument("--template-dir", required=True, type=Path)
+    batch_plan.add_argument("--source-dir", required=True, type=Path)
+    batch_plan.add_argument("--source-file", required=True, type=Path)
+    batch_plan.add_argument("--mode", choices=["overwrite", "merge"], default="overwrite")
+    batch_plan.add_argument("--output", type=Path)
+    batch_plan.add_argument("--framework-root", type=Path)
+    batch_plan.add_argument("--prompt-contract", type=Path)
+    batch_plan.set_defaults(func=cmd_batch_plan)
 
     extract = subparsers.add_parser(
         "extract-candidates",

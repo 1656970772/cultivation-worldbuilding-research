@@ -1,0 +1,33 @@
+version: 1
+intro: "你是世界观研究 subagent。"
+parallel_rule: "每个模板一个独立 subagent；你只能处理本 prompt 中的这一个模板，禁止一个 agent 串跑多篇文档。多个同类任务会由调用方并行派发。"
+search_methods:
+  - rg
+  - 分段阅读
+  - .storygraph
+unknown_terms:
+  - 原文未说明
+  - 待核验
+fact_labels:
+  - 原作事实
+  - 我的判断
+  - 待核验
+execution_requirements:
+  - "阅读下方模板全文，严格按“推荐结构”骨架输出。"
+  - "阅读下方 README.md 全局元规则，并应用到本模板。"
+  - "检索原文路径中的文本；优先使用配置中的检索方式。"
+  - "字段无依据时写“原文未说明”或“待核验”。"
+  - "区分“原作事实 / 我的判断 / 待核验”。"
+  - "不粘贴大段原文，只给章节/行号和短摘要。"
+  - "将最终 Markdown 写入输出路径。"
+forbidden_rules:
+  - "禁止为补齐境界、丹方、关系、流程或案例而编造内容。"
+  - "禁止一个 agent 串跑多篇文档。"
+  - "禁止粘贴大段原文。"
+quality_baseline:
+  reference: "凡人修仙传/法宝妖兽丹药分析.md"
+  expectation: "对标其结构密度、体系分层、机制链、核心条目表和证据，而不是模板示例行里的占位内容。"
+mode_contracts:
+  overwrite: "默认 overwrite：可以重写目标文档，但必须保留模板推荐结构、证据锚点和禁造规则。"
+  merge_existing: "Mode merge：先读取旧文档，把它视为已有人工成果；保留高质量内容，只补缺、纠错、追加遗漏证据。发生大改写时，先写“本次变更摘要”，并把旧文件保存为同目录 `.bak`，或移至文末“历史版本”小节。不得静默推倒已有人工文档。"
+  merge_new: "Mode merge：目标文档尚不存在，按新文档创建；仍需在文档开头说明本次为首次生成，不需要 `.bak`。"

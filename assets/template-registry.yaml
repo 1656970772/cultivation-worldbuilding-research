@@ -1,4 +1,6 @@
-templates:
+templates: {}
+
+examples:
   丹药分析模板.md:
     primary_mode: entity
     secondary_modes: [economy]

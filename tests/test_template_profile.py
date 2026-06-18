@@ -13,6 +13,112 @@ def write_template(tmp_path, name, content):
     return path
 
 
+def test_template_with_bom_is_parsed(tmp_path):
+    path = tmp_path / "丹药分析模板.md"
+    path.write_bytes(
+        "\ufeff# 丹药分析模板\n\n## 推荐结构\n\n| 丹药名称 | 功效 | 证据 |\n| --- | --- | --- |\n| 黄龙丹 | 增进修为 | 第一章 |\n".encode(
+            "utf-8"
+        )
+    )
+
+    profile = build_template_profile(path)
+
+    assert profile.template_name == "丹药分析模板"
+    assert profile.report_shape == "entity_table"
+    assert [field.name for field in profile.fields] == ["丹药名称", "功效", "证据"]
+
+
+def test_recommended_structure_inference_overrides_wrong_expected_file_config(tmp_path):
+    presets = write_template(
+        tmp_path,
+        "wrong-presets.yaml",
+        """parser:
+  recommended_structure_headings: [推荐结构]
+  card_section_headings: [卡片]
+template_catalog:
+  template_dir: .
+  expected_files:
+    丹药分析模板.md: relationship_chain
+template_shape_rules:
+  entity_table:
+    prefer_when: [recommended_table_has_subject_name_field]
+    table_column_min: 4
+  relationship_chain:
+    prefer_when: [node_edge_or_relation_sections]
+    requires_any: [node_edge_table]
+shape_detection_keywords:
+  entity_table:
+    columns: [丹药名称, 功效, 证据]
+  relationship_chain:
+    columns: [节点, 关系, 对象]
+validation_rules:
+  low_confidence_threshold: 0.6
+""",
+    )
+    write_template(tmp_path, "README.md", "# 模板目录\n")
+    template = write_template(
+        tmp_path,
+        "丹药分析模板.md",
+        """# 丹药分析模板
+
+## 推荐结构
+
+| 丹药名称 | 稀有度 | 功效 | 来源 | 证据 |
+| --- | --- | --- | --- | --- |
+| 黄龙丹 | 常见 | 增进修为 | 原文 | 第一章 |
+""",
+    )
+
+    profile = build_template_profile(template, presets)
+
+    assert profile.report_shape == "entity_table"
+    assert [field.name for field in profile.fields] == ["丹药名称", "稀有度", "功效", "来源", "证据"]
+    assert profile.name_field == "丹药名称"
+
+
+def test_expected_file_config_wins_when_recommended_section_has_no_classifiable_structure(tmp_path):
+    presets = write_template(
+        tmp_path,
+        "presets.yaml",
+        """parser:
+  recommended_structure_headings: [推荐结构]
+template_catalog:
+  template_dir: .
+  expected_files:
+    角色AI行为参考模板.md: decision_chain
+template_shape_rules:
+  entity_table:
+    prefer_when: [recommended_table_has_subject_name_field]
+  decision_chain:
+    prefer_when: [choice_or_condition_consequence_sections]
+    requires_any: [decision_nodes]
+shape_detection_keywords:
+  entity_table:
+    columns: [名称, 证据]
+  decision_chain:
+    heading: [决策节点]
+validation_rules:
+  low_confidence_threshold: 0.6
+""",
+    )
+    write_template(tmp_path, "README.md", "# 模板目录\n")
+    template = write_template(
+        tmp_path,
+        "角色AI行为参考模板.md",
+        """# 角色AI行为参考模板
+
+## 推荐结构
+
+请整理角色在关键场景中的行为倾向。
+""",
+    )
+
+    profile = build_template_profile(template, presets)
+
+    assert profile.report_shape == "decision_chain"
+    assert profile.confidence == 1.0
+
+
 def test_weapon_profile_prefers_recommended_structure_code_block(tmp_path):
     template = write_template(
         tmp_path,

@@ -6,25 +6,56 @@ template_catalog:
   template_dir: templates
   expected_files:
     README.md: meta_rules
-    世界观总览模板.md: overview_plus_cards
-    世界观设定模板.md: overview_plus_cards
-    势力组织模板.md: overview_plus_cards
-    势力设定模板.md: overview_plus_cards
-    地理区域模板.md: overview_plus_cards
-    人物角色模板.md: overview_plus_cards
     丹药分析模板.md: entity_table
-    灵材资源模板.md: entity_table
-    法宝器物模板.md: entity_table
+    材料分析模板.md: entity_table
+    法宝分析模板.md: entity_table
     武器分析模板.md: entity_table
+    妖兽分析模板.md: entity_table
+    灵根体质血脉模板.md: entity_table
     功法术法神通模板.md: cards_only
-    修炼体系模板.md: relationship_chain
-    境界阶段模板.md: process_chain
-    事件案例集模板.md: case_collection
+    记忆情绪与执念模板.md: cards_only
     事件因果链（长程因果图）模板.md: process_chain
+    境界提升与功法分析模板.md: process_chain
+    角色修炼历程模板.md: process_chain
+    人物关系与事件分析模板.md: relationship_chain
+    妖兽与修士关系分析模板.md: relationship_chain
     角色AI行为参考模板.md: decision_chain
-    关系网络模板.md: relationship_chain
-    职业技艺闭环模板.md: profession_workflow
-    经济交易模板.md: case_collection
+    炼丹师模板.md: profession_workflow
+    炼器师模板.md: profession_workflow
+    阵法师模板.md: profession_workflow
+    符师模板.md: profession_workflow
+    拍卖坊市与交易模板.md: case_collection
+    冲突事件分析模板.md: case_collection
+    相遇剧情与对话设计模板.md: case_collection
+    动态事件与机会点模板.md: case_collection
+    秘境遗迹与机缘模板.md: case_collection
+    夺舍设定分析模板.md: case_collection
+    邪修分析模板.md: case_collection
+    世界观设定模板.md: overview_plus_cards
+    势力设定模板.md: overview_plus_cards
+    建筑设施与场所功能模板.md: overview_plus_cards
+    世界状态与灾变模板.md: overview_plus_cards
+    散修生存方式模板.md: overview_plus_cards
+    宗门任务体系模板.md: overview_plus_cards
+    信息传播与情报模板.md: overview_plus_cards
+    有限视角与叙事日志模板.md: overview_plus_cards
+    战斗与保命机制模板.md: overview_plus_cards
+    物资产出与消耗模板.md: overview_plus_cards
+    出门游历流程分析模板.md: overview_plus_cards
+    时间行动与事件耗时模板.md: overview_plus_cards
+
+route_defaults:
+  primary_mode_by_shape:
+    entity_table: entity
+    overview_plus_cards: overview
+    cards_only: card
+    case_collection: case
+    process_chain: process
+    decision_chain: decision
+    relationship_chain: relationship
+    profession_workflow: workflow
+  output_name_pattern: "{work_title}{template_subject}.md"
+  report_title_pattern: "《{work_title}》{subject_type}分析"
 
 template_shapes:
   entity_table:

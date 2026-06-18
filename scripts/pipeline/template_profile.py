@@ -80,19 +80,22 @@ def load_shape_rules(presets_path: Path | None = None) -> dict[str, Any]:
 def build_template_profile(template_path: Path | str, presets_path: Path | None = None) -> TemplateProfile:
     """Read a template, parse Markdown structures, then classify report_shape from YAML rules."""
     path = Path(template_path)
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     rules = load_shape_rules(presets_path)
     snapshot = _parse_markdown(text, rules)
+    inferred_shape, inferred_confidence = _classify_shape(snapshot, rules)
     configured_shape = _configured_report_shape(path, rules)
-    if configured_shape:
+    threshold = float(rules.get("validation_rules", {}).get("low_confidence_threshold", 0.6))
+    if inferred_shape and inferred_confidence >= threshold:
+        report_shape, confidence = inferred_shape, inferred_confidence
+    elif configured_shape:
         report_shape, confidence = configured_shape, 1.0
     else:
-        report_shape, confidence = _classify_shape(snapshot, rules)
+        report_shape, confidence = inferred_shape, inferred_confidence
 
     tables = snapshot.recommended_tables or snapshot.tables
     field_tables = _field_source_tables(report_shape, tables)
     fields = _fields_from_tables(field_tables)
-    threshold = float(rules.get("validation_rules", {}).get("low_confidence_threshold", 0.6))
     questions = LOW_CONFIDENCE_QUESTIONS if confidence < threshold else []
     name_field = _detect_name_field(fields) if report_shape in {"entity_table", "overview_plus_cards"} else ""
 

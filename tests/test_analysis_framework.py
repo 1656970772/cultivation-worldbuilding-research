@@ -22,11 +22,19 @@ def test_presets_include_required_config_sections():
         "candidate_strategies",
         "render_blocks",
         "validation_rules",
+        "route_defaults",
     }.issubset(presets)
     assert presets["template_catalog"]["expected_files"]["README.md"] == "meta_rules"
-    assert presets["template_catalog"]["expected_files"]["事件因果链（长程因果图）模板.md"] == "process_chain"
-    assert presets["template_catalog"]["expected_files"]["角色AI行为参考模板.md"] == "decision_chain"
-    assert presets["template_catalog"]["expected_files"]["功法术法神通模板.md"] == "cards_only"
+    assert presets["template_catalog"]["expected_files"]["世界观设定模板.md"] == "overview_plus_cards"
+    assert presets["template_catalog"]["expected_files"]["人物关系与事件分析模板.md"] == "relationship_chain"
+    assert presets["template_catalog"]["expected_files"]["材料分析模板.md"] == "entity_table"
+    assert presets["template_catalog"]["expected_files"]["炼丹师模板.md"] == "profession_workflow"
+    assert presets["template_catalog"]["expected_files"]["时间行动与事件耗时模板.md"] == "overview_plus_cards"
+    primary_mode_by_shape = presets["route_defaults"]["primary_mode_by_shape"]
+    assert set(primary_mode_by_shape) == set(presets["template_shapes"])
+    assert all(isinstance(mode, str) and mode for mode in primary_mode_by_shape.values())
+    assert primary_mode_by_shape["entity_table"] == "entity"
+    assert primary_mode_by_shape["process_chain"] == "process"
     assert {"case_collection", "cards_only", "decision_chain", "relationship_chain", "profession_workflow"}.issubset(
         presets["template_shapes"]
     )
