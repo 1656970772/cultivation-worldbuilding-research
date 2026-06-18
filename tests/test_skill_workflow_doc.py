@@ -44,12 +44,13 @@ def test_skill_documents_overwrite_and_merge_modes():
     assert "不需要 .bak" in text
 
 
-def test_skill_documents_quality_baseline_and_python_downgrade():
+def test_skill_documents_v2_langextract_primary_flow_and_legacy_downgrade():
     text = SKILL.read_text(encoding="utf-8")
 
     assert "凡人修仙传/法宝妖兽丹药分析.md" in text
-    assert "candidate/evidence 抽取仅为 entity_table 类模板" in text
-    assert "叙事 / 关系 / 流程类模板" in text
-    assert "不调用 LLM" in text
-    assert "不管理 API key" in text
-    assert "不管理并发" in text
+    assert "V2 LangExtract" in text
+    assert "scripts/run_extraction.ps1" in text
+    assert "MiniMax" in text
+    assert "旧 candidate/evidence" in text
+    assert "历史/辅助粗筛" in text
+    assert "batch_plan/subagent" in text

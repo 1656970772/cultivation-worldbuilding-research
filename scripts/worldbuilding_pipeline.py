@@ -26,6 +26,7 @@ from scripts.pipeline.evidence_builder import build_evidence_pack
 from scripts.pipeline.analysis_framework import generate_framework
 from scripts.pipeline.batch_plan import build_batch_plan, write_batch_plan
 from scripts.pipeline.finalize_reviewed import finalize_reviewed
+from scripts.pipeline.extraction_runner import run_extraction
 from scripts.pipeline.jsonl_io import write_jsonl_objects
 from scripts.pipeline.merge_reviewed import (
     merge_reviewed_entries,
@@ -705,6 +706,56 @@ def cmd_finalize_reviewed(args: argparse.Namespace) -> int:
     return 0 if result["passed"] else 1
 
 
+def cmd_run_extraction(args: argparse.Namespace) -> int:
+    output_dir = Path(args.output_dir)
+    extraction_config = _mapping_value(load_yaml(Path(args.config)).get("extraction", {}))
+    common = {
+        "source_file": Path(args.source_file),
+        "config_path": Path(args.config),
+        "model_id": args.model,
+        "extraction_passes": args.passes,
+        "max_workers": args.workers,
+        "max_char_buffer": args.max_char_buffer,
+        "limit_chars": args.limit_chars,
+        "dry_run": args.dry_run,
+        "generate_visualization": not args.no_visualization,
+    }
+    if args.template:
+        summary = run_extraction(
+            template_path=Path(args.template),
+            output_dir=output_dir,
+            **common,
+        )
+        _stdout_json(summary)
+        return 0
+
+    templates = [
+        path
+        for path in sorted(Path(args.template_dir).glob("*.md"))
+        if path.name.lower() != "readme.md"
+    ]
+    if args.template_limit:
+        templates = templates[: args.template_limit]
+    summaries = []
+    for template in templates:
+        template_output = output_dir / template.stem.removesuffix("模板")
+        summaries.append(
+            run_extraction(
+                template_path=template,
+                output_dir=template_output,
+                **common,
+            )
+        )
+    batch_summary = {"templates": len(summaries), "summaries": summaries}
+    output_dir.mkdir(parents=True, exist_ok=True)
+    batch_name = str(extraction_config.get("batch_run_summary_name") or "batch-run-summary.json")
+    batch_path = output_dir / batch_name
+    batch_path.write_text(json.dumps(batch_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    batch_summary["output"] = str(batch_path)
+    _stdout_json(batch_summary)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run the configurable worldbuilding extraction pipeline.",
@@ -960,6 +1011,26 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.add_argument("--output-report", type=Path)
     finalize.add_argument("--run-manifest", type=Path)
     finalize.set_defaults(func=cmd_finalize_reviewed)
+
+    run_extract = subparsers.add_parser(
+        "run-extraction",
+        help="Run the V2 LangExtract extraction pipeline.",
+    )
+    template_group = run_extract.add_mutually_exclusive_group(required=True)
+    template_group.add_argument("--template", type=Path)
+    template_group.add_argument("--template-dir", type=Path)
+    run_extract.add_argument("--source-file", required=True, type=Path)
+    run_extract.add_argument("--output-dir", required=True, type=Path)
+    run_extract.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    run_extract.add_argument("--model")
+    run_extract.add_argument("--passes", type=int)
+    run_extract.add_argument("--workers", type=int)
+    run_extract.add_argument("--max-char-buffer", type=int)
+    run_extract.add_argument("--limit-chars", type=int)
+    run_extract.add_argument("--template-limit", type=int)
+    run_extract.add_argument("--dry-run", action="store_true")
+    run_extract.add_argument("--no-visualization", action="store_true")
+    run_extract.set_defaults(func=cmd_run_extraction)
 
     return parser
 

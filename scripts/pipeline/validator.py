@@ -75,9 +75,9 @@ def _duplicate_names(markdown: str) -> list[str]:
     seen: set[str] = set()
     for table in _markdown_tables(markdown):
         header = table["header"]
-        if "丹药名称" not in header:
+        name_index = _name_column_index(header)
+        if name_index is None:
             continue
-        name_index = header.index("丹药名称")
         for row in table["rows"]:
             if name_index >= len(row):
                 continue
@@ -231,10 +231,9 @@ def _profile_duplicate_names(markdown: str) -> list[str]:
     names: list[str] = []
     for table in _markdown_tables(markdown):
         header = table["header"]
-        name_columns = [name for name in ("名称", "丹药名称") if name in header]
-        if not name_columns:
+        name_index = _name_column_index(header)
+        if name_index is None:
             continue
-        name_index = header.index(name_columns[0])
         for row in table["rows"]:
             if name_index < len(row) and row[name_index].strip():
                 names.append(row[name_index].strip())
@@ -251,6 +250,14 @@ def _profile_duplicate_names(markdown: str) -> list[str]:
             duplicates.append(name)
         seen.add(name)
     return duplicates
+
+
+def _name_column_index(header: list[str]) -> int | None:
+    for index, column in enumerate(header):
+        normalized = column.strip()
+        if normalized == "名称" or normalized.endswith("名称"):
+            return index
+    return None
 
 
 def _validate_profile_report(markdown: str, route: dict[str, Any]) -> ValidationResult:

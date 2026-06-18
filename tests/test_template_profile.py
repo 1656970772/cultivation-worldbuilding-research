@@ -26,6 +26,9 @@ def test_template_with_bom_is_parsed(tmp_path):
     assert profile.template_name == "丹药分析模板"
     assert profile.report_shape == "entity_table"
     assert [field.name for field in profile.fields] == ["丹药名称", "功效", "证据"]
+    assert profile.tables[0].rows == [["黄龙丹", "增进修为", "第一章"]]
+    assert profile.examples[0].title == "黄龙丹"
+    assert profile.examples[0].fields["功效"] == "增进修为"
 
 
 def test_recommended_structure_inference_overrides_wrong_expected_file_config(tmp_path):
@@ -315,3 +318,61 @@ validation_rules:
     assert ("条目页：{对象名称}", "card", ["类型", "证据"]) in [
         (section.title, section.kind, section.fields) for section in profile.sections
     ]
+
+
+def test_card_examples_are_available_for_fewshot_generation(tmp_path):
+    template = write_template(
+        tmp_path,
+        "功法术法神通模板.md",
+        """# 功法术法神通模板
+
+## 推荐结构
+
+### 基础吐纳法
+
+- 类别：功法
+- 功效：辅助炼气期吸纳灵气
+- 来源：七玄门基础传授
+
+### 御风术
+
+- 类别：术法
+- 功效：短距离腾挪
+- 来源：坊市购买
+""",
+    )
+
+    profile = build_template_profile(template, PRESETS)
+
+    assert [example.title for example in profile.examples] == ["基础吐纳法", "御风术"]
+    assert profile.examples[0].fields == {
+        "类别": "功法",
+        "功效": "辅助炼气期吸纳灵气",
+        "来源": "七玄门基础传授",
+    }
+
+
+def test_card_examples_skip_instruction_and_placeholder_sections(tmp_path):
+    template = write_template(
+        tmp_path,
+        "事件因果链模板.md",
+        """# 事件因果链模板
+
+## 参考范围（不局限于以下类别）
+
+- 起点事件：说明可分析的事件范围
+
+## 案例 N：因果链名称
+
+- 起点事件：占位说明
+
+## 案例 1：韩立与墨大夫因果链
+
+- 起点事件：墨大夫收韩立为徒
+- 最终结果：韩立踏入修仙线索
+""",
+    )
+
+    profile = build_template_profile(template, PRESETS)
+
+    assert [example.title for example in profile.examples] == ["韩立与墨大夫因果链"]

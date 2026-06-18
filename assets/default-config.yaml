@@ -10,3 +10,24 @@ output:
   evidence_in_final_report: false
   report_title_pattern: "《{work_title}》{subject_type}分析"
   output_name_pattern: "{work_title}{subject_type}分析.md"
+extraction:
+  model_id: MiniMax-M2.7
+  base_url: https://api.minimaxi.com/v1
+  extraction_passes: 3
+  max_workers: 4
+  max_char_buffer: 1000
+  limit_chars: 0
+  dry_run: false
+  generate_visualization: true
+  extraction_jsonl_name: langextract-results.jsonl
+  grounded_jsonl_name: grounded-extractions.jsonl
+  merged_json_name: merged-extractions.json
+  report_name_pattern: "{template_stem}.md"
+  run_summary_name: run-summary.json
+  batch_run_summary_name: batch-run-summary.json
+  visualization_html_name: visualization.html
+  chars_per_token_estimate: 2
+  compose_enabled: true
+  compose_temperature: 0
+  compose_max_tokens: 4096
+  compose_timeout_seconds: 120

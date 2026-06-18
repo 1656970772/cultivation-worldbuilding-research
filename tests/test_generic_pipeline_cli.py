@@ -129,3 +129,37 @@ def test_batch_plan_cli_uses_default_output(tmp_path: Path):
     stdout = json.loads(result.stdout)
     assert stdout["output"] == str(output)
     assert output.exists()
+
+
+def test_run_extraction_cli_dry_run_writes_summary(tmp_path: Path):
+    source = tmp_path / "凡人修仙传.txt"
+    source.write_text("韩立服下聚气丹。" * 5, encoding="utf-8")
+    template = tmp_path / "丹药分析模板.md"
+    template.write_text(
+        "# 丹药分析模板\n\n## 推荐结构\n\n| 丹药名称 | 功效 |\n| --- | --- |\n| 聚气丹 | 增加真气 |\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "out"
+
+    result = run_cli(
+        "run-extraction",
+        "--template",
+        str(template),
+        "--source-file",
+        str(source),
+        "--output-dir",
+        str(output_dir),
+        "--dry-run",
+        "--limit-chars",
+        "12",
+        "--max-char-buffer",
+        "5",
+    )
+
+    assert result.returncode == 0, result.stderr
+    stdout = json.loads(result.stdout)
+    assert stdout["dry_run"] is True
+    assert stdout["source"]["truncated"] is True
+    assert stdout["elapsed_seconds"] >= 0
+    assert stdout["estimates"]["chunk_count"] == 3
+    assert (output_dir / "run-summary.json").exists()

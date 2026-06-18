@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Any
@@ -35,6 +35,15 @@ class TemplateTable:
     title: str
     columns: list[str]
     source: str
+    rows: list[list[str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TemplateExample:
+    title: str
+    fields: dict[str, str]
+    source: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -47,6 +56,7 @@ class TemplateProfile:
     tables: list[TemplateTable]
     fields: list[TemplateField]
     name_field: str
+    examples: list[TemplateExample]
     confidence: float
     questions: list[str]
     forbidden_output_modes: list[str]
@@ -62,6 +72,7 @@ class MarkdownSnapshot:
     card_sections: list[TemplateSection]
     body_text: str
     recommended_text: str
+    examples: list[TemplateExample]
 
 
 def load_shape_rules(presets_path: Path | None = None) -> dict[str, Any]:
@@ -108,6 +119,7 @@ def build_template_profile(template_path: Path | str, presets_path: Path | None 
         tables=tables,
         fields=fields,
         name_field=name_field,
+        examples=snapshot.examples,
         confidence=confidence,
         questions=questions,
         forbidden_output_modes=_detect_forbidden_output_modes(text),
@@ -127,6 +139,7 @@ def _parse_markdown(text: str, rules: dict[str, Any]) -> MarkdownSnapshot:
     body_tables = _extract_tables(text, "body")
     table_sections = _table_sections_from_tables(body_tables)
     card_sections = _extract_card_sections(lines, _card_heading_terms(rules))
+    examples = _extract_examples(lines, recommended_tables or body_tables)
     return MarkdownSnapshot(
         headings=headings,
         bullet_labels=bullet_labels,
@@ -136,6 +149,7 @@ def _parse_markdown(text: str, rules: dict[str, Any]) -> MarkdownSnapshot:
         card_sections=card_sections,
         body_text=text,
         recommended_text=recommended_text,
+        examples=examples,
     )
 
 
@@ -213,7 +227,14 @@ def _extract_tables(text: str, source: str) -> list[TemplateTable]:
             continue
         columns = _split_table_row(line)
         if columns:
-            tables.append(TemplateTable(title=current_heading, columns=columns, source=source))
+            rows: list[list[str]] = []
+            row_index = index + 2
+            while row_index < len(lines) and _is_table_row(lines[row_index]):
+                row = _split_table_row(lines[row_index])
+                if row and not _is_separator_row(lines[row_index]):
+                    rows.append(row)
+                row_index += 1
+            tables.append(TemplateTable(title=current_heading, columns=columns, source=source, rows=rows))
     return tables
 
 
@@ -251,6 +272,121 @@ def _extract_card_sections(lines: list[str], card_headings: list[str]) -> list[T
             if label:
                 current_fields.append(label.group(1).strip())
     return sections
+
+
+def _extract_examples(lines: list[str], tables: list[TemplateTable]) -> list[TemplateExample]:
+    examples = _table_examples(tables)
+    examples.extend(_card_examples(lines))
+    return examples
+
+
+def _table_examples(tables: list[TemplateTable]) -> list[TemplateExample]:
+    examples: list[TemplateExample] = []
+    for table in tables:
+        if not table.columns:
+            continue
+        name_index = _name_column_index(table.columns)
+        for row in table.rows:
+            padded = row + [""] * max(0, len(table.columns) - len(row))
+            fields = {
+                column: value.strip()
+                for column, value in zip(table.columns, padded)
+                if value.strip()
+            }
+            title = padded[name_index].strip() if name_index < len(padded) else ""
+            if not title or _looks_like_placeholder(title):
+                continue
+            text = "；".join(
+                f"{column}：{value}"
+                for column, value in zip(table.columns, padded)
+                if value.strip()
+            )
+            examples.append(TemplateExample(title=title, fields=fields, source=table.source, text=text))
+    return examples
+
+
+def _card_examples(lines: list[str]) -> list[TemplateExample]:
+    examples: list[TemplateExample] = []
+    current_title = ""
+    current_level = 0
+    current_fields: dict[str, str] = {}
+    current_lines: list[str] = []
+
+    def flush() -> None:
+        if not current_title or _looks_like_placeholder(current_title) or not current_fields:
+            return
+        text = "\n".join([current_title, *current_lines]).strip()
+        examples.append(
+            TemplateExample(
+                title=_clean_example_title(current_title),
+                fields=dict(current_fields),
+                source="card",
+                text=text,
+            )
+        )
+
+    for line in lines + ["# __END__"]:
+        heading = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$", line)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if current_title and level <= current_level:
+                flush()
+                current_fields = {}
+                current_lines = []
+            current_title = title
+            current_level = level
+            continue
+
+        if not current_title:
+            continue
+        label = re.match(r"^\s*[-*+]\s*\*?\s*([^：:]+)[：:]\s*(.*?)\s*$", line)
+        if label:
+            key = label.group(1).strip().lstrip("*").strip()
+            value = label.group(2).strip()
+            if key and value:
+                current_fields[key] = value
+        if line.strip():
+            current_lines.append(line.rstrip())
+
+    return examples
+
+
+def _name_column_index(columns: list[str]) -> int:
+    for index, column in enumerate(columns):
+        if "名称" in column or "名字" in column:
+            return index
+    return 0
+
+
+def _clean_example_title(title: str) -> str:
+    cleaned = re.sub(r"^案例\s*[0-9一二三四五六七八九十Nn]+\s*[：:]\s*", "", title).strip()
+    return cleaned or title
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    normalized = _normalize(value)
+    instruction_terms = (
+        "参考范围",
+        "必须写什么",
+        "适用范围",
+        "前置声明",
+        "推荐结构",
+        "案例格式",
+        "完整因果链案例",
+        "完整人物关系变化链案例",
+        "完整势力百科案例",
+    )
+    return (
+        not normalized
+        or any(term in value for term in instruction_terms)
+        or "作品名" in value
+        or "{名称}" in value
+        or re.search(r"案例\s*[Nn]\s*[：:]", value) is not None
+        or "因果链名称" in value
+        or "示例" == normalized
+        or normalized in {"案例n", "因果链名称"}
+    )
 
 
 def _table_sections_from_tables(tables: list[TemplateTable]) -> list[TemplateSection]:
